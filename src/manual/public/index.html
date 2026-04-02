@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Creator</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d0f18; --surf: #161923; --surf2: #1e2233; --surf3: #252a3f;
+  --bdr: #2b3050; --bdr2: #3a4068; --txt: #dde0f0; --muted: #6b7199;
+  --accent: #5c6ef5; --acc-h: #4a5ce0; --success: #22c55e;
+  --warn: #f59e0b; --error: #ef4444; --r: 8px; --r-sm: 5px;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--txt); font-size: 13.5px; line-height: 1.55; }
+
+.layout { display: grid; grid-template-columns: 380px 1fr; height: 100vh; overflow: hidden; }
+
+/* Panel */
+.panel { display: flex; flex-direction: column; overflow: hidden; background: var(--surf); border-right: 1px solid var(--bdr); }
+.panel-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--bdr); flex-shrink: 0; }
+.panel-header h1 { font-size: 15px; font-weight: 600; }
+.panel-header p { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.panel-body { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
+.panel-footer { padding: 14px 20px; border-top: 1px solid var(--bdr); flex-shrink: 0; }
+
+/* Form */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.label { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+input[type=text], input[type=url], textarea {
+  background: var(--surf2); border: 1px solid var(--bdr); color: var(--txt);
+  border-radius: var(--r-sm); padding: 8px 11px; font-size: 13.5px;
+  font-family: inherit; outline: none; width: 100%; transition: border-color .15s;
+}
+input:focus, textarea:focus { border-color: var(--accent); }
+textarea { resize: vertical; min-height: 64px; }
+::placeholder { color: var(--muted); }
+
+/* Mode buttons */
+.mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode-btn {
+  background: var(--surf2); border: 1px solid var(--bdr); color: var(--muted);
+  border-radius: var(--r-sm); padding: 12px 8px; cursor: pointer;
+  font-size: 13px; font-weight: 500; display: flex; flex-direction: column;
+  align-items: center; gap: 3px; transition: all .15s; font-family: inherit;
+}
+.mode-btn .sub { font-size: 10px; color: var(--muted); font-weight: 400; }
+.mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mode-btn.active .sub { color: rgba(255,255,255,.65); }
+.mode-btn:hover:not(.active) { border-color: var(--bdr2); color: var(--txt); }
+
+/* Dropzone */
+.dropzone {
+  border: 1.5px dashed var(--bdr2); border-radius: var(--r);
+  padding: 16px 12px; text-align: center; cursor: pointer;
+  background: var(--surf2); transition: all .15s;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: rgba(92,110,245,.07); }
+.dropzone p { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.dropzone input { display: none; }
+.img-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(64px,1fr)); gap: 6px; margin-top: 8px; }
+.img-thumb { position: relative; aspect-ratio: 1; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--bdr); }
+.img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-thumb button { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; background: rgba(0,0,0,.75); border: none; color: #fff; border-radius: 50%; font-size: 9px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.url-row { display: flex; gap: 6px; }
+.url-row input { flex: 1; }
+.btn-sm { background: var(--surf3); border: 1px solid var(--bdr); color: var(--txt); border-radius: var(--r-sm); padding: 7px 11px; font-size: 13px; cursor: pointer; white-space: nowrap; transition: all .15s; font-family: inherit; font-weight: 500; }
+.btn-sm:hover { border-color: var(--accent); }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.tag { background: var(--surf3); border: 1px solid var(--bdr); border-radius: 20px; padding: 2px 9px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; max-width: 200px; }
+.tag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag button { background: none; border: none; color: var(--error); cursor: pointer; font-size: 12px; padding: 0; flex-shrink: 0; }
+
+/* Toggle */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: var(--surf2); border: 1px solid var(--bdr); border-radius: var(--r-sm); }
+.toggle { position: relative; width: 34px; height: 18px; cursor: pointer; }
+.toggle input { opacity: 0; position: absolute; width: 0; height: 0; }
+.t-track { position: absolute; inset: 0; background: var(--bdr2); border-radius: 18px; transition: background .2s; }
+.t-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform .2s; }
+.toggle input:checked ~ .t-track { background: var(--accent); }
+.toggle input:checked ~ .t-knob  { transform: translateX(16px); }
+.section { display: none; flex-direction: column; gap: 10px; }
+.section.open { display: flex; }
+
+/* Submit */
+.btn-submit { width: 100%; background: var(--accent); border: none; color: #fff; border-radius: var(--r-sm); padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px; transition: background .15s; font-family: inherit; }
+.btn-submit:hover:not(:disabled) { background: var(--acc-h); }
+.btn-submit:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Main */
+.main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+.main-header { padding: 16px 24px; border-bottom: 1px solid var(--bdr); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.main-header h2 { font-size: 14px; font-weight: 600; }
+.jobs-list { flex: 1; overflow-y: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 12px; }
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+.empty svg { opacity: .25; }
+
+/* Job card */
+.card { background: var(--surf); border: 1px solid var(--bdr); border-radius: var(--r); overflow: hidden; }
+.card:hover { border-color: var(--bdr2); }
+.card-head { padding: 12px 14px; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.dot-active  { background: var(--warn); animation: pulse 1.4s infinite; }
+.dot-done    { background: var(--success); }
+.dot-failed  { background: var(--error); }
+.dot-pending { background: var(--muted); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.card-info { flex: 1; min-width: 0; }
+.card-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.badge { padding: 1px 7px; border-radius: 20px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.b-reels  { background: rgba(168,85,247,.15); color: #c084fc; }
+.b-video  { background: rgba(56,189,248,.13); color: #38bdf8; }
+.b-done   { background: rgba(34,197,94,.12);  color: #4ade80; }
+.b-failed { background: rgba(239,68,68,.12);  color: #f87171; }
+.b-run    { background: rgba(245,158,11,.12); color: #fbbf24; }
+.b-pend   { background: rgba(107,113,153,.12); color: var(--muted); }
+.card-time { font-size: 10.5px; color: var(--muted); }
+.chevron { color: var(--muted); font-size: 10px; flex-shrink: 0; transition: transform .2s; margin-top: 3px; }
+.card.open .chevron { transform: rotate(90deg); }
+
+.prog-wrap { padding: 0 14px 10px; }
+.prog-bar  { height: 2.5px; background: var(--bdr); border-radius: 2px; overflow: hidden; }
+.prog-fill { height: 100%; background: var(--accent); transition: width .5s ease; }
+.prog-meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10.5px; color: var(--muted); }
+
+.card-detail { display: none; border-top: 1px solid var(--bdr); }
+.card.open .card-detail { display: block; }
+.dtabs { display: flex; border-bottom: 1px solid var(--bdr); padding: 0 14px; }
+.dtab { padding: 8px 12px; font-size: 11.5px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit; }
+.dtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.dpanel { display: none; padding: 12px 14px; }
+.dpanel.active { display: block; }
+.log-box { background: var(--surf2); border: 1px solid var(--bdr); border-radius: var(--r-sm); padding: 9px 11px; max-height: 220px; overflow-y: auto; font-family: 'Menlo','Monaco','Courier New',monospace; font-size: 11px; line-height: 1.65; }
+.log-row { display: flex; gap: 7px; }
+.log-ts { color: var(--muted); flex-shrink: 0; }
+.log-i { color: var(--txt); } .log-w { color: var(--warn); } .log-e { color: var(--error); }
+.script-box { background: var(--surf2); border: 1px solid var(--bdr); border-radius: var(--r-sm); padding: 11px; font-size: 13px; line-height: 1.7; max-height: 260px; overflow-y: auto; white-space: pre-wrap; color: var(--txt); }
+.actions { display: flex; flex-direction: column; gap: 7px; }
+.action-btn { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--surf2); border: 1px solid var(--bdr); color: var(--txt); border-radius: var(--r-sm); font-size: 13px; cursor: pointer; text-decoration: none; transition: all .15s; font-family: inherit; width: 100%; text-align: left; }
+.action-btn:hover { border-color: var(--accent); }
+.action-btn.danger { color: var(--error); }
+.action-btn.danger:hover { border-color: var(--error); }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bdr2); border-radius: 3px; }
+
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .panel { max-height: 55vh; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ══ LEFT: FORM ══ -->
+<aside class="panel">
+  <div class="panel-header">
+    <h1>🎬 Video Creator</h1>
+    <p>DB → Script → TTS → Video → Facebook</p>
+  </div>
+
+  <div class="panel-body">
+
+    <!-- Author -->
+    <div class="field">
+      <div class="label">Author (field trong DB) *</div>
+      <input type="text" id="f-author" value="giavang24" placeholder="VD: giavang24">
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">Lấy 1 bài mới nhất có <code style="background:var(--surf3);padding:1px 4px;border-radius:3px">active=true</code></div>
+    </div>
+
+    <!-- Mode -->
+    <div class="field">
+      <div class="label">Định dạng video</div>
+      <div class="mode-row">
+        <button class="mode-btn active" data-mode="reels" onclick="setMode(this)">
+          📱 Reels
+          <span class="sub">~75 giây · 1080×1920</span>
+        </button>
+        <button class="mode-btn" data-mode="video" onclick="setMode(this)">
+          📺 Video dài
+          <span class="sub">~5 phút · 1920×1080</span>
+        </button>
+      </div>
+      <input type="hidden" id="f-mode" value="reels">
+    </div>
+
+    <!-- Images -->
+    <div class="field">
+      <div class="label">Ảnh nền <span style="font-weight:400;text-transform:none;color:var(--muted)">(tuỳ chọn — để trống dùng ảnh mặc định)</span></div>
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileIn').click()">
+        <div style="font-size:22px">🖼️</div>
+        <p><strong>Kéo thả</strong> hoặc click để chọn ảnh</p>
+        <p style="font-size:11px">JPEG · PNG · WebP · 20MB · Tối đa 10 ảnh</p>
+        <input type="file" id="fileIn" multiple accept=".jpg,.jpeg,.png,.webp" onchange="addFiles(event)">
+      </div>
+      <div class="img-grid" id="imgGrid"></div>
+      <div style="margin-top:10px">
+        <div class="label" style="margin-bottom:5px">Hoặc nhập URL ảnh</div>
+        <div class="url-row">
+          <input type="url" id="imgUrlIn" placeholder="https://...">
+          <button class="btn-sm" onclick="addImgUrl()">Thêm</button>
+        </div>
+        <div class="tags" id="imgUrlTags"></div>
+      </div>
+    </div>
+
+    <!-- Facebook -->
+    <div class="field">
+      <div class="toggle-row">
+        <span>🚀 Post lên Facebook sau khi dựng xong</span>
+        <label class="toggle">
+          <input type="checkbox" id="f-fb" onchange="document.getElementById('sec-fb').classList.toggle('open',this.checked)">
+          <span class="t-track"></span><span class="t-knob"></span>
+        </label>
+      </div>
+      <div class="section" id="sec-fb">
+        <textarea id="f-fbdesc" rows="3" placeholder="Mô tả bài đăng (để trống để tự tạo)"></textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn-submit" id="submitBtn" onclick="submitJob()">
+      <span id="btnIcon">▶</span><span id="btnTxt">Tạo video</span>
+    </button>
+  </div>
+</aside>
+
+<!-- ══ RIGHT: JOBS ══ -->
+<main class="main">
+  <div class="main-header">
+    <h2>Jobs</h2>
+    <span id="jobCount" style="font-size:11.5px;color:var(--muted)"></span>
+  </div>
+  <div class="jobs-list" id="jobsList">
+    <div class="empty">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M8 8h5M8 16h3"/>
+      </svg>
+      <span>Chưa có job nào</span>
+    </div>
+  </div>
+</main>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const dt = new DataTransfer();
+const imgUrls = [];
+const sseMap = {};
+let jobs = [];
+let openJob = null;
+const tabMap = {};
+
+// ── Mode ───────────────────────────────────────────────────────────────────────
+function setMode(btn) {
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('f-mode').value = btn.dataset.mode;
+}
+
+// ── File upload ────────────────────────────────────────────────────────────────
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); [...e.dataTransfer.files].filter(f=>f.type.startsWith('image/')).forEach(addFileItem); });
+function addFiles(e) { [...e.target.files].forEach(addFileItem); e.target.value=''; }
+function addFileItem(file) { if(dt.items.length>=10)return; dt.items.add(file); renderGrid(); }
+function renderGrid() {
+  const g = document.getElementById('imgGrid'); g.innerHTML='';
+  [...dt.files].forEach((f,i)=>{
+    const url=URL.createObjectURL(f); const d=document.createElement('div'); d.className='img-thumb';
+    d.innerHTML=`<img src="${url}" alt=""><button onclick="removeFile(${i})">✕</button>`; g.appendChild(d);
+  });
+}
+function removeFile(i) { const t=new DataTransfer(); [...dt.files].forEach((f,j)=>{if(j!==i)t.items.add(f);}); dt.items.clear(); [...t.files].forEach(f=>dt.items.add(f)); renderGrid(); }
+
+// ── URL images ─────────────────────────────────────────────────────────────────
+function addImgUrl() {
+  const inp=document.getElementById('imgUrlIn'); const url=inp.value.trim();
+  if(!url.startsWith('http'))return; imgUrls.push(url); inp.value=''; renderUrlTags();
+}
+document.getElementById('imgUrlIn').addEventListener('keydown', e=>{if(e.key==='Enter'){e.preventDefault();addImgUrl();}});
+function renderUrlTags() {
+  document.getElementById('imgUrlTags').innerHTML = imgUrls.map((u,i)=>`
+    <div class="tag"><span title="${esc(u)}">${esc(u.replace(/^https?:\/\//,'').slice(0,35))}${u.length>40?'…':''}</span>
+    <button onclick="imgUrls.splice(${i},1);renderUrlTags()">✕</button></div>`).join('');
+}
+
+// ── Submit ─────────────────────────────────────────────────────────────────────
+async function submitJob() {
+  const author = document.getElementById('f-author').value.trim();
+  if (!author) { alert('Vui lòng nhập author'); return; }
+
+  const btn=document.getElementById('submitBtn');
+  btn.disabled=true; document.getElementById('btnIcon').textContent='⏳'; document.getElementById('btnTxt').textContent='Đang tạo...';
+
+  try {
+    const fd = new FormData();
+    fd.append('author', author);
+    fd.append('mode', document.getElementById('f-mode').value);
+    fd.append('postToFacebook', document.getElementById('f-fb').checked ? 'true' : 'false');
+    const desc = document.getElementById('f-fbdesc').value.trim();
+    if (desc) fd.append('facebookDescription', desc);
+    [...dt.files].forEach(f => fd.append('images', f));
+    imgUrls.forEach(u => fd.append('imageUrls', u));
+
+    const res = await fetch('/api/jobs', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Lỗi server');
+
+    openJob = data.jobId;
+    await loadJobs();
+    connectSSE(data.jobId);
+
+    // Reset
+    document.getElementById('f-author').value = 'giavang24';
+    document.getElementById('f-fb').checked = false;
+    document.getElementById('sec-fb').classList.remove('open');
+    document.getElementById('f-fbdesc').value = '';
+    dt.items.clear(); renderGrid(); imgUrls.length=0; renderUrlTags();
+  } catch(e) { alert('Lỗi: ' + e.message); }
+  finally {
+    btn.disabled=false; document.getElementById('btnIcon').textContent='▶'; document.getElementById('btnTxt').textContent='Tạo video';
+  }
+}
+
+// ── SSE ────────────────────────────────────────────────────────────────────────
+function connectSSE(jobId) {
+  if (sseMap[jobId]) return;
+  const es = new EventSource(`/api/jobs/${jobId}/events`);
+  sseMap[jobId] = es;
+  es.onmessage = ({data}) => {
+    const ev = JSON.parse(data);
+    patchCard(ev);
+    if (ev.status==='done' || ev.status==='failed') { es.close(); delete sseMap[ev.jobId]; loadJobs(); }
+  };
+  es.onerror = () => { es.close(); delete sseMap[jobId]; };
+}
+
+// ── Jobs ───────────────────────────────────────────────────────────────────────
+async function loadJobs() {
+  const res = await fetch('/api/jobs');
+  const data = await res.json();
+  jobs = data.jobs || [];
+  document.getElementById('jobCount').textContent = jobs.length ? `${jobs.length} job${jobs.length>1?'s':''}` : '';
+  renderList();
+  jobs.forEach(j => { if (!['done','failed'].includes(j.status) && !sseMap[j.id]) connectSSE(j.id); });
+}
+
+function renderList() {
+  const el = document.getElementById('jobsList');
+  if (!jobs.length) { el.innerHTML=`<div class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M8 8h5M8 16h3"/></svg><span>Chưa có job nào</span></div>`; return; }
+  el.innerHTML = jobs.map(renderCard).join('');
+  if (openJob) { const c=document.getElementById(`c_${openJob}`); if(c){c.classList.add('open'); loadDetail(openJob);} }
+}
+
+function renderCard(j) {
+  const isOpen = openJob === j.id;
+  const isActive = !['done','failed','pending'].includes(j.status);
+  const tab = tabMap[j.id] || 'logs';
+  const dotCls = j.status==='done'?'dot-done':j.status==='failed'?'dot-failed':j.status==='pending'?'dot-pending':'dot-active';
+  const bCls = j.status==='done'?'b-done':j.status==='failed'?'b-failed':j.status==='pending'?'b-pend':'b-run';
+  const bLabel = {pending:'Chờ',fetching:'Lấy DB',scripting:'Script',tts:'TTS',encoding:'Encode',uploading:'Upload',done:'Xong',failed:'Lỗi'}[j.status]||j.status;
+  const mCls = j.mode==='reels'?'b-reels':'b-video';
+  const mLabel = j.mode==='reels'?'📱 Reels':'📺 Video';
+
+  return `<div class="card ${isOpen?'open':''}" id="c_${j.id}">
+  <div class="card-head" onclick="toggleCard('${j.id}')">
+    <div class="status-dot ${dotCls}"></div>
+    <div class="card-info">
+      <div class="card-title">${esc(j.author)} — ${mLabel}</div>
+      <div class="card-meta">
+        <span class="badge ${mCls}">${mLabel}</span>
+        <span class="badge ${bCls}">${bLabel}</span>
+        <span class="card-time">${timeAgo(j.createdAt)}</span>
+      </div>
+    </div>
+    <span class="chevron">▶</span>
+  </div>
+  ${(isActive||isOpen)?`
+  <div class="prog-wrap">
+    <div class="prog-bar"><div class="prog-fill" id="pf_${j.id}" style="width:${j.progress}%"></div></div>
+    <div class="prog-meta"><span id="ps_${j.id}">${esc(j.currentStep)}</span><span id="pp_${j.id}">${j.progress}%</span></div>
+  </div>`:''}
+  <div class="card-detail">
+    <div class="dtabs">
+      <button class="dtab ${tab==='logs'?'active':''}"    onclick="switchTab('${j.id}','logs')">📋 Logs</button>
+      <button class="dtab ${tab==='script'?'active':''}"  onclick="switchTab('${j.id}','script')">📝 Script</button>
+      <button class="dtab ${tab==='actions'?'active':''}" onclick="switchTab('${j.id}','actions')">⚡ Actions</button>
+    </div>
+    <div class="dpanel ${tab==='logs'?'active':''}"    id="dp_logs_${j.id}"><div class="log-box" id="lb_${j.id}"><span style="color:var(--muted)">Đang tải...</span></div></div>
+    <div class="dpanel ${tab==='script'?'active':''}"  id="dp_script_${j.id}"><div class="script-box" id="sb_${j.id}"><span style="color:var(--muted);font-style:italic">Script xuất hiện sau khi sinh xong...</span></div><button class="btn-sm" style="margin-top:8px" onclick="copyScript('${j.id}')">📋 Copy</button></div>
+    <div class="dpanel ${tab==='actions'?'active':''}" id="dp_actions_${j.id}"><div class="actions" id="ab_${j.id}"><span style="color:var(--muted);font-size:12px">Đang xử lý...</span></div></div>
+  </div>
+</div>`;
+}
+
+function toggleCard(jobId) {
+  openJob = openJob===jobId ? null : jobId;
+  if (openJob) loadDetail(jobId);
+  renderList();
+}
+
+function switchTab(jobId, tab) {
+  tabMap[jobId] = tab;
+  const card = document.getElementById(`c_${jobId}`);
+  if(!card) return;
+  card.querySelectorAll('.dtab').forEach((t,i) => t.classList.toggle('active', ['logs','script','actions'][i]===tab));
+  card.querySelectorAll('.dpanel').forEach((p,i) => p.classList.toggle('active', ['logs','script','actions'][i]===tab));
+  loadDetail(jobId);
+}
+
+async function loadDetail(jobId) {
+  const res = await fetch(`/api/jobs/${jobId}`);
+  if (!res.ok) return;
+  const j = await res.json();
+  const tab = tabMap[jobId] || 'logs';
+
+  if (tab==='logs') {
+    const lb = document.getElementById(`lb_${jobId}`);
+    if (lb) {
+      lb.innerHTML = j.logs?.length
+        ? j.logs.map(l=>`<div class="log-row"><span class="log-ts">${fmtTime(l.ts)}</span><span class="log-${l.level==='info'?'i':l.level==='warn'?'w':'e'}">${esc(l.msg)}</span></div>`).join('')
+        : '<span style="color:var(--muted)">Chưa có log...</span>';
+      lb.scrollTop = lb.scrollHeight;
+    }
+  }
+  if (tab==='script') {
+    const sb = document.getElementById(`sb_${jobId}`);
+    if (sb && j.script) { sb.innerHTML=''; sb.textContent=j.script; }
+  }
+  if (tab==='actions') {
+    const ab = document.getElementById(`ab_${jobId}`);
+    if (!ab) return;
+    const done=j.status==='done', failed=j.status==='failed';
+    if (!done && !failed) { ab.innerHTML='<span style="color:var(--muted);font-size:12px">Actions xuất hiện khi hoàn thành.</span>'; return; }
+    const btns=[];
+    if (done && j.videoFilename) btns.push(`<a class="action-btn" href="/api/jobs/${jobId}/download">⬇️ Download video MP4</a>`);
+    if (j.facebookPostId) btns.push(`<a class="action-btn" href="https://www.facebook.com/${esc(j.facebookPostId)}" target="_blank" rel="noopener">📘 Xem trên Facebook</a>`);
+    btns.push(`<button class="action-btn danger" onclick="deleteJob('${jobId}')">🗑️ Xóa job</button>`);
+    ab.innerHTML = btns.join('');
+  }
+}
+
+async function deleteJob(jobId) {
+  if (!confirm('Xóa job này?')) return;
+  await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+  if (openJob===jobId) openJob=null;
+  await loadJobs();
+}
+async function copyScript(jobId) {
+  const sb=document.getElementById(`sb_${jobId}`);
+  if (!sb?.textContent?.trim()) return;
+  await navigator.clipboard.writeText(sb.textContent);
+  alert('Đã copy!');
+}
+
+// ── SSE patch ──────────────────────────────────────────────────────────────────
+function patchCard(ev) {
+  const pf=document.getElementById(`pf_${ev.jobId}`); if(pf) pf.style.width=ev.progress+'%';
+  const ps=document.getElementById(`ps_${ev.jobId}`); if(ps) ps.textContent=ev.step;
+  const pp=document.getElementById(`pp_${ev.jobId}`); if(pp) pp.textContent=ev.progress+'%';
+  const card=document.getElementById(`c_${ev.jobId}`);
+  if(card){const dot=card.querySelector('.status-dot');if(dot)dot.className='status-dot '+(ev.status==='done'?'dot-done':ev.status==='failed'?'dot-failed':'dot-active');}
+  if(Array.isArray(ev.logs)&&ev.logs.length&&openJob===ev.jobId&&(tabMap[ev.jobId]||'logs')==='logs'){
+    const lb=document.getElementById(`lb_${ev.jobId}`);
+    if(lb){lb.innerHTML=ev.logs.map(l=>`<div class="log-row"><span class="log-ts">${fmtTime(l.ts)}</span><span class="log-${l.level==='info'?'i':l.level==='warn'?'w':'e'}">${esc(l.msg)}</span></div>`).join('');lb.scrollTop=lb.scrollHeight;}
+  }
+  if(ev.log&&openJob===ev.jobId&&(tabMap[ev.jobId]||'logs')==='logs'){
+    const lb=document.getElementById(`lb_${ev.jobId}`);
+    if(lb){if(lb.querySelector('[style*="muted"]'))lb.innerHTML='';const row=document.createElement('div');row.className='log-row';row.innerHTML=`<span class="log-ts">${fmtTime(ev.log.ts)}</span><span class="log-${ev.log.level==='info'?'i':ev.log.level==='warn'?'w':'e'}">${esc(ev.log.msg)}</span>`;lb.appendChild(row);lb.scrollTop=lb.scrollHeight;}
+  }
+  const sc=ev.result?.script??ev.script;
+  if(sc&&openJob===ev.jobId){const sb=document.getElementById(`sb_${ev.jobId}`);if(sb){sb.innerHTML='';sb.textContent=sc;}}
+  if((ev.status==='done'||ev.status==='failed')&&openJob===ev.jobId) setTimeout(()=>loadDetail(ev.jobId),400);
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const fmtTime = ts => new Date(ts).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const timeAgo = iso => { const s=Math.floor((Date.now()-new Date(iso).getTime())/1000); if(s<60)return s+'s trước'; if(s<3600)return Math.floor(s/60)+'p trước'; return Math.floor(s/3600)+'h trước'; };
+
+loadJobs();
+setInterval(loadJobs, 30_000);
+</script>
+</body>
+</html>

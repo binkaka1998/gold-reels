@@ -1,0 +1,43 @@
+services:
+  pipeline:
+    build: .
+    container_name: news-video-pipeline
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${WEB_PORT:-3456}:3456"
+    volumes:
+      # Static background images — mount your images directory here
+      - ./assets:/app/assets:ro
+      # Persisted video outputs — survives container restarts
+      - pipeline-outputs:/app/outputs
+      # Ephemeral temp files — tmpfs for speed, no persistence needed
+      - pipeline-tmp:/app/tmp
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3456/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  pipeline-outputs:
+  pipeline-tmp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=5g"

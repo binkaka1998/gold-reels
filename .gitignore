@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.env
+*.env.local
+
+# Prisma generated client
+node_modules/.prisma/
+
+# Runtime — KHÔNG commit vào repo
+outputs/
+tmp/
+*.mp4
+*.wav
+*.srt
+*.mp3
+
+# Logs
+*.log
+logs/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

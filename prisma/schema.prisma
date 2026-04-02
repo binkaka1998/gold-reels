@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NewsCategory {
+  INTERNATIONAL
+  DOMESTIC
+}
+
+model News {
+  id                 Int           @id @default(autoincrement())
+  headlineEn         String
+  headlineVi         String?
+  slugVi             String        @unique
+  slugEn             String        @unique
+  shortEn            String?       @db.Text
+  shortVi            String?       @db.Text
+  contentEn          String        @db.Text
+  contentVi          String?       @db.Text
+  detailLink         String        @unique
+  pageCited          String
+  hash               String        @unique
+  active             Boolean       @default(false)
+  category           NewsCategory  @default(INTERNATIONAL)
+  tags               String[]      @default([])
+  keywords           String[]      @default([])
+  metaDesc           String?
+  author             String?
+  featured           Boolean       @default(false)
+  views              Int           @default(0)
+  publishedAt        DateTime?     @default(now())
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime?     @updatedAt
+  socialEnabled      Boolean       @default(false)
+  socialProcessing   Boolean       @default(false)
+  socialProcessingAt DateTime?
+  postedFacebook     Boolean       @default(false)
+  postedInstagram    Boolean       @default(false)
+  postedThreads      Boolean       @default(false)
+  facebookPostId     String?
+  instagramMediaId   String?
+  threadsPostId      String?
+  socialError        String?       @db.Text
+  socialRetryCount   Int           @default(0)
+  socialPostedAt     DateTime?
+
+  @@index([pageCited])
+  @@index([active])
+  @@index([category])
+  @@index([createdAt])
+  @@index([slugVi])
+  @@index([featured])
+  @@index([active, socialEnabled, socialProcessing, postedFacebook, postedInstagram, postedThreads])
+  @@index([socialProcessingAt])
+  @@map("news")
+}

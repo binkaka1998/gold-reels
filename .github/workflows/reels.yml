@@ -1,0 +1,70 @@
+name: Auto Reels
+
+# Lịch: 2 Reels/ngày — Thứ 2–6
+# 07:00 ICT = 00:00 UTC
+# 19:30 ICT = 12:30 UTC
+
+on:
+  schedule:
+    - cron: '0 0 * * 1-5'
+    - cron: '30 12 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  publish-reels:
+    name: Publish Reels
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install FFmpeg
+        run: sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Run Reels pipeline
+        run: npx tsx src/index.ts --mode=reels
+        env:
+          DATABASE_URL:               ${{ secrets.DATABASE_URL }}
+          AZURE_SPEECH_KEY:           ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION:        ${{ secrets.AZURE_SPEECH_REGION }}
+          AZURE_TTS_VOICE:            vi-VN-NamMinhNeural
+          GEMINI_API_KEY:             ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_SCRIPT_MODEL:        gemini-2.5-flash
+          TTS_PROVIDER:               azure
+          FACEBOOK_PAGE_ID:           ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_ACCESS_TOKEN:      ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+          FACEBOOK_API_VERSION:       v21.0
+          ASSETS_DIR:                 ./assets/images
+          # Dùng /tmp — không lưu vào repo, tự xoá sau mỗi run
+          TMP_DIR:                    /tmp/pipeline
+          WEB_OUTPUT_DIR:             /tmp/pipeline/output
+          WEB_UPLOAD_DIR:             /tmp/pipeline/uploads
+          LOG_LEVEL:                  info
+          REELS_MAX_DURATION_SECONDS: 90
+          REELS_VIDEO_WIDTH:          1080
+          REELS_VIDEO_HEIGHT:         1920
+          MAX_NEWS_PER_RUN:           1
+          STALE_LOCK_MINUTES:         30
+          WEB_PORT:                   3456
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reels-failure-${{ github.run_id }}
+          path: /tmp/pipeline/
+          retention-days: 3
