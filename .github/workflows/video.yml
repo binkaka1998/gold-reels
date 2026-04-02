@@ -10,6 +10,7 @@ on:
 jobs:
   publish-video:
     name: Publish Video
+    environment: GoldReels
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
