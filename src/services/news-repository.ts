@@ -78,53 +78,44 @@ export async function cleanStaleLocks(): Promise<number> {
 // ─── Acquire processing lock ──────────────────────────────────────────────────
 
 /**
- * Atomically selects and locks N articles for video processing.
- * Returns only articles that were successfully locked by THIS process.
- * Handles concurrent cron runs safely — only one process gets each article.
+ * Lấy bài DOMESTIC + featured mới nhất và lock để xử lý.
+ * Không quan tâm socialEnabled, socialError, retryCount.
  */
 export async function acquireArticlesForVideoProcessing(
-  limit: number,
-  mode: 'reels' | 'video'
+    limit: number,
+    mode: 'reels' | 'video'
 ): Promise<NewsArticle[]> {
   const prisma = getPrisma();
 
-  // Step 1: Find candidates (read — no lock yet)
   const candidates = await prisma.news.findMany({
     where: {
-      socialEnabled: true,
-      active: true,
-      postedFacebook: false,
+      active:           true,
+      featured:         true,
+      category:         'DOMESTIC',
+      postedFacebook:   false,
       socialProcessing: false,
-      // Only retry if under threshold
-      socialRetryCount: { lt: 3 },
-      socialError: null,
     },
-    orderBy: [
-      { featured: 'desc' },
-      { publishedAt: 'desc' },
-    ],
-    take: limit * 2, // Fetch extra — some may lose the atomic lock race
+    orderBy: { publishedAt: 'desc' },
+    take: limit * 2,
     select: {
-      id: true,
-      headlineVi: true,
-      headlineEn: true,
-      shortVi: true,
-      shortEn: true,
-      contentVi: true,
-      contentEn: true,
-      pageCited: true,
-      category: true,
+      id:          true,
+      headlineVi:  true,
+      headlineEn:  true,
+      shortVi:     true,
+      shortEn:     true,
+      contentVi:   true,
+      contentEn:   true,
+      pageCited:   true,
+      category:    true,
       publishedAt: true,
     },
   });
 
   if (candidates.length === 0) {
-    logger.info({ mode }, 'No articles available for video processing');
+    logger.info({ mode }, 'No articles available');
     return [];
   }
 
-  // Step 2: Atomic lock — only update WHERE socialProcessing = false
-  // This WHERE clause is the critical race-condition guard.
   const lockedIds: number[] = [];
 
   for (const candidate of candidates) {
@@ -132,54 +123,51 @@ export async function acquireArticlesForVideoProcessing(
 
     const result = await prisma.news.updateMany({
       where: {
-        id: candidate.id,
-        socialProcessing: false, // ATOMIC CHECK: must still be false
-        postedFacebook: false,   // Re-check: not posted by a concurrent run
+        id:               candidate.id,
+        socialProcessing: false,
+        postedFacebook:   false,
       },
       data: {
-        socialProcessing: true,
+        socialProcessing:   true,
         socialProcessingAt: new Date(),
       },
     });
 
     if (result.count === 1) {
       lockedIds.push(candidate.id);
-    } else {
-      logger.debug({ articleId: candidate.id }, 'Article lock lost to concurrent process');
     }
   }
 
   if (lockedIds.length === 0) {
-    logger.info({ mode }, 'No articles locked — all taken by concurrent processes');
+    logger.info({ mode }, 'No articles locked');
     return [];
   }
 
-  // Step 3: Fetch full data for locked articles
   const locked = await prisma.news.findMany({
     where: { id: { in: lockedIds } },
     select: {
-      id: true,
-      headlineVi: true,
-      headlineEn: true,
-      shortVi: true,
-      shortEn: true,
-      contentVi: true,
-      contentEn: true,
-      pageCited: true,
-      category: true,
+      id:          true,
+      headlineVi:  true,
+      headlineEn:  true,
+      shortVi:     true,
+      shortEn:     true,
+      contentVi:   true,
+      contentEn:   true,
+      pageCited:   true,
+      category:    true,
       publishedAt: true,
     },
   });
 
-  logger.info({ lockedCount: locked.length, mode }, 'Articles locked for video processing');
+  logger.info({ lockedCount: locked.length, mode }, 'Articles locked');
   return locked as NewsArticle[];
 }
 
 // ─── Mark success ─────────────────────────────────────────────────────────────
 
 export async function markVideoPostSuccess(
-  articleIds: number[],
-  facebookPostId: string
+    articleIds: number[],
+    facebookPostId: string
 ): Promise<void> {
   const prisma = getPrisma();
 
@@ -200,8 +188,8 @@ export async function markVideoPostSuccess(
 // ─── Mark failure ─────────────────────────────────────────────────────────────
 
 export async function markVideoPostFailure(
-  articleIds: number[],
-  error: string
+    articleIds: number[],
+    error: string
 ): Promise<void> {
   const prisma = getPrisma();
 
@@ -248,17 +236,21 @@ export async function releaseVideoProcessingLock(articleIds: number[]): Promise<
 // ─── Fetch latest articles by author (for manual DB source) ──────────────────
 
 export interface DbSourceArticle {
-  id: number;
-  headlineVi: string | null;
-  headlineEn: string;
-  contentEn: string;
-  contentVi: string | null;
+  id:          number;
+  headlineVi:  string | null;
+  headlineEn:  string;
+  shortVi:     string | null;
+  shortEn:     string | null;
+  contentEn:   string;
+  contentVi:   string | null;
+  pageCited:   string;
+  category:    string;
   publishedAt: Date | null;
 }
 
 export async function fetchLatestByAuthor(
-  author: string,
-  limit = 1
+    author: string,
+    limit = 1
 ): Promise<DbSourceArticle[]> {
   const prisma = getPrisma();
 
@@ -270,19 +262,23 @@ export async function fetchLatestByAuthor(
     orderBy: { publishedAt: 'desc' },
     take: limit,
     select: {
-      id: true,
-      headlineVi: true,
-      headlineEn: true,
-      contentEn: true,
-      contentVi: true,
+      id:          true,
+      headlineVi:  true,
+      headlineEn:  true,
+      shortVi:     true,
+      shortEn:     true,
+      contentEn:   true,
+      contentVi:   true,
+      pageCited:   true,
+      category:    true,
       publishedAt: true,
     },
   });
 
   if (rows.length === 0) {
     throw new Error(
-      `Không tìm thấy bài nào của author "${author}" trong DB (active=true). ` +
-      `Kiểm tra lại field author hoặc thêm bài có active=true.`
+        `Không tìm thấy bài nào của author "${author}" trong DB (active=true). ` +
+        `Kiểm tra lại field author hoặc thêm bài có active=true.`
     );
   }
 

@@ -64,7 +64,7 @@ export interface AppConfig {
   gemini: { apiKey: string; voice: string; scriptModel: string };
   ttsProvider: TtsProvider;
   facebook: { pageId: string; accessToken: string; apiVersion: string };
-  pipeline: { assetsDir: string; tmpDir: string; maxNewsPerRun: number; staleLockMinutes: number };
+  pipeline: { assetsDir: string; tmpDir: string; dbAuthor: string; maxNewsPerRun: number; staleLockMinutes: number };
   reels: { maxDurationSeconds: number; width: number; height: number };
   video: { maxDurationSeconds: number; width: number; height: number };
   logLevel: string;

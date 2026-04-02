@@ -49,6 +49,7 @@ jobs:
           FACEBOOK_PAGE_ID:           ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_ACCESS_TOKEN:      ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
           FACEBOOK_API_VERSION:       v25.0
+          DB_AUTHOR:                  giavang24
           ASSETS_DIR:                 ./assets
           # Dùng /tmp — không lưu vào repo, tự xoá sau mỗi run
           TMP_DIR:                    /tmp/pipeline

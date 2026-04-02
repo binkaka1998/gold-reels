@@ -21,6 +21,7 @@ const envSchema = z.object({
 
   ASSETS_DIR:          z.string().default('./assets'),
   TMP_DIR:             z.string().default('./tmp'),
+  DB_AUTHOR:           z.string().default('giavang24'),
   MAX_NEWS_PER_RUN:    z.coerce.number().int().positive().default(5),
   STALE_LOCK_MINUTES:  z.coerce.number().int().positive().default(30),
   LOG_LEVEL:           z.string().default('info'),
@@ -51,7 +52,7 @@ function loadConfig(): AppConfig {
     gemini: { apiKey: env.GEMINI_API_KEY, voice: env.GEMINI_TTS_VOICE, scriptModel: env.GEMINI_SCRIPT_MODEL },
     ttsProvider: env.TTS_PROVIDER,
     facebook: { pageId: env.FACEBOOK_PAGE_ID, accessToken: env.FACEBOOK_ACCESS_TOKEN, apiVersion: env.FACEBOOK_API_VERSION },
-    pipeline: { assetsDir: env.ASSETS_DIR, tmpDir: env.TMP_DIR, maxNewsPerRun: env.MAX_NEWS_PER_RUN, staleLockMinutes: env.STALE_LOCK_MINUTES },
+    pipeline: { assetsDir: env.ASSETS_DIR, tmpDir: env.TMP_DIR, dbAuthor: env.DB_AUTHOR, maxNewsPerRun: env.MAX_NEWS_PER_RUN, staleLockMinutes: env.STALE_LOCK_MINUTES },
     reels: { maxDurationSeconds: env.REELS_MAX_DURATION_SECONDS, width: env.REELS_VIDEO_WIDTH, height: env.REELS_VIDEO_HEIGHT },
     video: { maxDurationSeconds: env.VIDEO_MAX_DURATION_SECONDS, width: env.VIDEO_WIDTH, height: env.VIDEO_HEIGHT },
     logLevel: env.LOG_LEVEL,
