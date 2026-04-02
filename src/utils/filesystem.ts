@@ -38,27 +38,14 @@ export async function cleanupRunDir(runDir: string): Promise<void> {
 }
 
 /**
- * Loads all supported image paths from the assets directory.
- * Shuffles them so different runs use different image orderings.
- * Throws if the pool is empty (misconfiguration).
- */
-export async function loadImagePool(): Promise<string[]> {
-  const config = getConfig();
-  return loadImagePoolFromDir(path.resolve(config.pipeline.assetsDir));
-}
-
-/**
- * Loads images from a specific directory (for trend-based selection).
- * Minimum 1 image required.
+ * Loads images từ một folder cụ thể. Throw nếu không có ảnh.
  */
 export async function loadImagePoolFromDir(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
   } catch {
-    throw new Error(
-        `Thư mục ảnh không tồn tại hoặc không đọc được: ${dir}`
-    );
+    throw new Error(`Thư mục không tồn tại: ${dir}`);
   }
 
   const images = entries
@@ -66,46 +53,82 @@ export async function loadImagePoolFromDir(dir: string): Promise<string[]> {
       .map((f) => path.join(dir, f));
 
   if (images.length < 1) {
-    throw new Error(`Không có ảnh nào trong: ${dir}. Thêm ít nhất 1 ảnh.`);
+    throw new Error(`Không có ảnh trong: ${dir}`);
   }
 
   // Fisher-Yates shuffle
-  const shuffled = [...images];
-  for (let i = shuffled.length - 1; i > 0; i--) {
+  for (let i = images.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+    [images[i], images[j]] = [images[j]!, images[i]!];
   }
 
-  logger.info({ count: shuffled.length, dir }, 'Image pool loaded');
-  return shuffled;
+  logger.info({ count: images.length, dir }, 'Images loaded');
+  return images;
+}
+
+/**
+ * Fallback pool: gom ảnh từ tất cả subfolders (up/, down/, video/).
+ * Dùng khi không có folder trend/video cụ thể.
+ */
+async function loadImageFallback(baseDir: string): Promise<string[]> {
+  const all: string[] = [];
+  try {
+    const entries = await fs.readdir(baseDir);
+    for (const entry of entries) {
+      const subPath = path.join(baseDir, entry);
+      try {
+        const stat = await fs.stat(subPath);
+        if (!stat.isDirectory()) continue;
+        const subs = await fs.readdir(subPath);
+        subs
+            .filter((f) => SUPPORTED_IMAGE_EXTENSIONS.includes(path.extname(f).toLowerCase()))
+            .forEach((f) => all.push(path.join(subPath, f)));
+      } catch { /* skip */ }
+    }
+  } catch { /* skip */ }
+
+  if (all.length === 0) {
+    throw new Error(
+        `Không tìm thấy ảnh trong: ${baseDir}\n` +
+        `Cấu trúc mong đợi:\n` +
+        `  ${baseDir}/up/     ← Reels uptrend\n` +
+        `  ${baseDir}/down/   ← Reels downtrend\n` +
+        `  ${baseDir}/video/  ← Video dài`
+    );
+  }
+
+  // Shuffle
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j]!, all[i]!];
+  }
+
+  logger.warn({ count: all.length, baseDir }, 'Using fallback image pool from all subdirs');
+  return all;
 }
 
 /**
  * Load ảnh theo trend cho Reels:
- *   uptrend   → assets/images/up/
- *   downtrend → assets/images/down/
- * Fallback về assets/images/ nếu thư mục trend trống/không tồn tại.
+ *   uptrend   → ASSETS_DIR/up/
+ *   downtrend → ASSETS_DIR/down/
  */
 export async function loadImagesByTrend(
     trend: 'uptrend' | 'downtrend'
 ): Promise<string[]> {
-  const config  = getConfig();
-  const baseDir = path.resolve(config.pipeline.assetsDir);
-  const subDir  = trend === 'uptrend' ? 'up' : 'down';
-  const trendDir = path.join(baseDir, subDir);
+  const config   = getConfig();
+  const baseDir  = path.resolve(config.pipeline.assetsDir);
+  const trendDir = path.join(baseDir, trend === 'uptrend' ? 'up' : 'down');
 
   try {
-    const images = await loadImagePoolFromDir(trendDir);
-    return images;
+    return await loadImagePoolFromDir(trendDir);
   } catch {
-    logger.warn({ trendDir }, `Không có ảnh cho ${trend} — fallback về assets root`);
-    return loadImagePool();
+    logger.warn({ trendDir }, `Không có ảnh cho ${trend} — fallback`);
+    return loadImageFallback(baseDir);
   }
 }
 
 /**
- * Load ảnh cho Video — assets/images/video/
- * Fallback về assets/images/ nếu thư mục video trống/không tồn tại.
+ * Load ảnh cho Video dài — ASSETS_DIR/video/
  */
 export async function loadImagesForVideo(): Promise<string[]> {
   const config   = getConfig();
@@ -113,12 +136,27 @@ export async function loadImagesForVideo(): Promise<string[]> {
   const videoDir = path.join(baseDir, 'video');
 
   try {
-    const images = await loadImagePoolFromDir(videoDir);
-    return images;
+    return await loadImagePoolFromDir(videoDir);
   } catch {
-    logger.warn({ videoDir }, 'Không có ảnh video — fallback về assets root');
-    return loadImagePool();
+    logger.warn({ videoDir }, 'Không có ảnh video — fallback');
+    return loadImageFallback(baseDir);
   }
+}
+
+/**
+ * Generic pool — dùng bởi các context không cần trend.
+ * Ưu tiên ASSETS_DIR/up/ nếu có, rồi fallback toàn bộ subdirs.
+ */
+export async function loadImagePool(): Promise<string[]> {
+  const config  = getConfig();
+  const baseDir = path.resolve(config.pipeline.assetsDir);
+
+  // Thử up/ trước (phổ biến nhất)
+  try {
+    return await loadImagePoolFromDir(path.join(baseDir, 'up'));
+  } catch { /* fallback */ }
+
+  return loadImageFallback(baseDir);
 }
 
 /**

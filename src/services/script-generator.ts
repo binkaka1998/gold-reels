@@ -1,117 +1,79 @@
 // src/services/script-generator.ts
-// Uses Claude (Anthropic) to generate TTS-ready scripts from news articles.
-//
-// Reels mode:  Short ~60-90s brief — punchy, direct, no filler.
-// Video mode:  Deep analysis ~4-6 min — context, implications, expert framing.
-//
-// Both outputs are structured as segments to allow subtitle alignment.
+// Script generation cho auto pipelines (GitHub Actions).
+// Dùng @google/genai SDK — trả về JSON { trend, script } giống manual flow.
 
-import axios from 'axios';
-import type { NewsArticle, GeneratedScript, PipelineMode } from '../types/index.js';
+import { GoogleGenAI } from '@google/genai';
+import type { NewsArticle, PipelineMode } from '../types/index.js';
 import { getConfig } from '../utils/config.js';
 import { getLogger } from '../utils/logger.js';
 
 const logger = getLogger('script-generator');
 
-// ─── Prompt templates ────────────────────────────────────────────────────────
+const CLOSING = 'Hãy theo dõi page Giá Vàng 24 News để có các tin tức cập nhật về giá vàng mới nhất nhé. Cảm ơn các bạn!';
+
+export type TrendDirection = 'uptrend' | 'downtrend';
+
+export interface GeneratedScript {
+  title:               string;
+  fullText:            string;
+  segments:            Array<{ index: number; text: string }>;
+  estimatedDurationSec: number;
+  trend:               TrendDirection;
+}
+
+// ─── Prompts ──────────────────────────────────────────────────────────────────
 
 function buildReelsPrompt(articles: NewsArticle[]): string {
-  const headlines = articles
-    .map((a, i) => `${i + 1}. [${a.pageCited}] ${a.headlineVi ?? a.headlineEn}`)
-    .join('\n');
+  const content = articles
+      .map((a) => `${a.headlineVi ?? a.headlineEn}\n${a.contentVi ?? a.contentEn}`)
+      .join('\n\n---\n\n');
 
-  const contents = articles
-    .map(
-      (a, i) =>
-        `--- Bài ${i + 1}: ${a.headlineVi ?? a.headlineEn} ---\n${a.shortVi ?? a.shortEn ?? a.contentVi ?? a.contentEn}`
-    )
-    .join('\n\n');
+  return `Bạn là MC bản tin tài chính của kênh Giá Vàng 24 News. Tóm tắt thành script Reels 75 giây.
 
-  return `Bạn là biên tập viên tin tức tài chính chuyên nghiệp. Viết bản tin vắn cho Facebook Reels, PHẢI đọc được trong 60-80 giây.
+NỘI DUNG:
+${content}
 
-DANH SÁCH TIN:
-${headlines}
+CẤU TRÚC (150–170 từ):
+1. Mở đầu: nêu ngay số liệu nổi bật nhất.
+2. Diễn biến (2–3 câu): mức thay đổi, nguyên nhân chính.
+3. Bối cảnh (1–2 câu): yếu tố vĩ mô nếu có.
+4. Nhận định (1 câu): khách quan, không khuyến nghị mua/bán.
+5. Kết (nguyên văn): "${CLOSING}"
 
-NỘI DUNG CHI TIẾT:
-${contents}
+PHONG CÁCH: MC bản tin — ngắn gọn, súc tích, không hoa mỹ, không clickbait. Số tiền viết bằng chữ lần đầu.
 
-YÊU CẦU BẮT BUỘC:
-1. Bắt đầu bằng một câu giới thiệu hấp dẫn (hook) dưới 15 từ.
-2. Tổng hợp ${articles.length} tin thành bản tin liền mạch, tự nhiên khi đọc to.
-3. Mỗi tin một đoạn riêng, không dùng số thứ tự hay gạch đầu dòng.
-4. Kết thúc bằng câu nhắc theo dõi ngắn gọn.
-5. Tổng độ dài: 150-200 từ.
-6. Ngôn ngữ: Tiếng Việt, giọng báo chí chuyên nghiệp nhưng dễ nghe.
-7. KHÔNG dùng ký tự đặc biệt, ký hiệu toán học, viết tắt khó đọc.
-8. Số tiền: viết bằng chữ (ví dụ: "một triệu đô la" thay vì "$1M").
-
-Chỉ trả về văn bản script thuần túy, không có tiêu đề, không có chú thích, không có markdown.`;
+TRẢ VỀ JSON (không có text nào ngoài JSON):
+{"trend":"uptrend hoặc downtrend","script":"toàn bộ script"}`;
 }
 
 function buildVideoPrompt(articles: NewsArticle[]): string {
-  const headlines = articles
-    .map((a, i) => `${i + 1}. [${a.pageCited}] ${a.headlineVi ?? a.headlineEn}`)
-    .join('\n');
+  const content = articles
+      .map((a) => `${a.headlineVi ?? a.headlineEn}\n${a.contentVi ?? a.contentEn}`)
+      .join('\n\n---\n\n');
 
-  const contents = articles
-    .map(
-      (a, i) =>
-        `--- Bài ${i + 1} ---\nTiêu đề: ${a.headlineVi ?? a.headlineEn}\nNguồn: ${a.pageCited}\nNội dung: ${a.contentVi ?? a.contentEn}`
-    )
-    .join('\n\n');
+  return `Bạn là chuyên gia phân tích thị trường vàng của kênh Giá Vàng 24 News. Viết script phân tích 3 phút.
 
-  return `Bạn là chuyên gia phân tích tài chính và biên tập viên kỳ cựu. Viết script phân tích chuyên sâu dạng video dài, đọc được trong 4-6 phút.
+NỘI DUNG:
+${content}
 
-DANH SÁCH TIN:
-${headlines}
+CẤU TRÚC (400–440 từ):
+1. Mở đầu (30 giây): bối cảnh và số liệu nổi bật.
+2. Diễn biến (60 giây): giá SJC, vàng nhẫn, thế giới — mức tăng/giảm cụ thể.
+3. Phân tích (60 giây): nguyên nhân — vĩ mô, USD, Fed, địa chính trị.
+4. Lưu ý (30 giây): điểm cần thận trọng, khách quan.
+5. Kết (nguyên văn): "${CLOSING}"
 
-NỘI DUNG CHI TIẾT:
-${contents}
+PHONG CÁCH: chuyên gia phân tích — chiều sâu, logic, không sensational. Viết liền mạch, không dùng gạch đầu dòng hay headers.
 
-CẤU TRÚC BẮT BUỘC (theo thứ tự):
-1. PHẦN MỞ ĐẦU (30-45 giây): Hook mạnh, nêu vấn đề trọng tâm của ngày hôm nay.
-2. PHẦN PHÂN TÍCH CHÍNH (3-4 phút): 
-   - Đi sâu vào từng tin, giải thích bối cảnh và nguyên nhân.
-   - Liên kết các tin với nhau nếu có mối quan hệ.
-   - Phân tích tác động đến thị trường Việt Nam và quốc tế.
-   - Đưa ra góc nhìn chuyên gia, không chỉ truyền đạt thông tin.
-3. PHẦN KẾT (30-45 giây): Tổng kết, xu hướng cần theo dõi, call-to-action.
-
-YÊU CẦU:
-- Tổng độ dài: 600-800 từ.
-- Ngôn ngữ Tiếng Việt, chuyên nghiệp, có chiều sâu phân tích.
-- Viết liên tục, tự nhiên khi đọc to — đây là script TTS.
-- KHÔNG dùng ký tự đặc biệt, bullet points, số thứ tự, hay markdown.
-- Số liệu: viết đầy đủ bằng chữ khi đọc lần đầu.
-- Kết thúc mỗi phần chính bằng câu chuyển tiếp mượt mà.
-
-Chỉ trả về văn bản script thuần túy.`;
+TRẢ VỀ JSON (không có text nào ngoài JSON):
+{"trend":"uptrend hoặc downtrend","script":"toàn bộ script"}`;
 }
 
-// ─── Segment splitter ────────────────────────────────────────────────────────
-// Splits script into segments at sentence boundaries for subtitle alignment.
-// Azure TTS provides per-word timing, but segment-level structure helps
-// with post-processing and analytics.
-
-function splitIntoSegments(text: string): string[] {
-  // Split on sentence boundaries, preserving trailing punctuation
-  return text
-    .split(/(?<=[.!?…])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-function estimateDurationSeconds(text: string): number {
-  // Vietnamese spoken: approximately 130-150 words/min
-  const wordCount = text.split(/\s+/).length;
-  return Math.ceil((wordCount / 140) * 60);
-}
-
-// ─── Main service ─────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function generateScript(
-  articles: NewsArticle[],
-  mode: PipelineMode
+    articles: NewsArticle[],
+    mode: PipelineMode,
 ): Promise<GeneratedScript> {
   const config = getConfig();
 
@@ -119,89 +81,70 @@ export async function generateScript(
     throw new Error('Cannot generate script: no articles provided');
   }
 
-  const prompt = mode === 'reels'
-    ? buildReelsPrompt(articles)
-    : buildVideoPrompt(articles);
+  const prompt = mode === 'reels' ? buildReelsPrompt(articles) : buildVideoPrompt(articles);
 
-  logger.info({ mode, articleCount: articles.length, model: config.gemini.scriptModel }, 'Generating script via Gemini');
+  logger.info({ mode, articleCount: articles.length, model: config.gemini.scriptModel }, 'Generating script');
 
-  let fullText: string;
+  const genAI  = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+
+  let parsed: { trend: string; script: string };
 
   try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.scriptModel}:generateContent?key=${config.gemini.apiKey}`,
-      {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: mode === 'reels' ? 1024 : 4096,
-          temperature: 0.7,
-        },
+    const result = await genAI.models.generateContent({
+      model:    config.gemini.scriptModel,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        maxOutputTokens: 65_535,
+        temperature:     0.7,
+        tools:           [{ googleSearch: {} }],
+        thinkingConfig:  { thinkingBudget: 0 },
       },
-      {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 60_000,
-      }
-    );
+    });
 
-    const responseData = response.data as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string }> };
-        finishReason?: string;
-      }>;
-      promptFeedback?: { blockReason?: string };
-    };
+    const raw         = (result.text ?? '').trim();
+    const finishReason = result.candidates?.[0]?.finishReason;
 
-    if (responseData?.promptFeedback?.blockReason) {
-      throw new Error(`Gemini blocked prompt: ${responseData.promptFeedback.blockReason}`);
+    logger.info({ finishReason, rawLen: raw.length }, 'Gemini response');
+
+    if (finishReason === 'SAFETY') throw new Error('Gemini safety filter blocked output');
+
+    // Extract JSON — Gemini có thể thêm text thừa xung quanh khi dùng googleSearch
+    const jsonMatch = raw.match(/\{[\s\S]*"trend"[\s\S]*"script"[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error(`Không tìm thấy JSON trong response. Raw: ${raw.slice(0, 200)}`);
     }
+    parsed = JSON.parse(jsonMatch[0]) as { trend: string; script: string };
 
-    const candidate = responseData?.candidates?.[0];
-    const finishReason = candidate?.finishReason;
-    const text = candidate?.content?.parts?.[0]?.text;
-
-    logger.debug({ finishReason, textLen: text?.length }, 'Gemini script response');
-
-    if (!text) {
-      throw new Error(
-        `Gemini returned no text. finishReason: ${finishReason}. ` +
-        `Full: ${JSON.stringify(responseData)}`
-      );
-    }
-
-    if (finishReason === 'SAFETY') {
-      throw new Error(`Gemini safety filter blocked script output`);
-    }
-
-    fullText = text.trim();
-  } catch (err) {
-    if (axios.isAxiosError(err)) {
-      const status = err.response?.status;
-      const detail = JSON.stringify(err.response?.data ?? {});
-      if (status === 401 || status === 403) {
-        throw new Error(
-          `Gemini API ${status} Unauthorized — kiểm tra GEMINI_API_KEY trong .env. ` +
-          `Lấy key tại: aistudio.google.com/app/apikey. Response: ${detail}`
-        );
-      }
-      throw new Error(`Gemini script generation error (HTTP ${status}): ${detail}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('API_KEY_INVALID') || msg.includes('401') || msg.includes('403')) {
+      throw new Error(`Gemini API key không hợp lệ — kiểm tra GEMINI_API_KEY. Chi tiết: ${msg}`);
     }
     throw err;
   }
 
+  const trend: TrendDirection = parsed.trend === 'downtrend' ? 'downtrend' : 'uptrend';
+  let fullText = (parsed.script ?? '').trim();
+
   if (!fullText || fullText.length < 50) {
-    throw new Error(`Script too short or empty (length: ${fullText?.length ?? 0})`);
+    throw new Error(`Script too short (${fullText.length} chars)`);
   }
 
-  const sentenceTexts = splitIntoSegments(fullText);
-  const segments = sentenceTexts.map((text, index) => ({ index, text }));
+  if (!fullText.includes('Giá Vàng 24 News')) {
+    fullText = fullText + '\n\n' + CLOSING;
+  }
 
-  const estimatedDurationSec = estimateDurationSeconds(fullText);
-  const title = articles[0]?.headlineVi ?? articles[0]?.headlineEn ?? 'Bản tin';
+  const segments = fullText
+      .split(/(?<=[.!?…])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map((text, index) => ({ index, text }));
 
-  logger.info(
-    { mode, segments: segments.length, estimatedDurationSec, charCount: fullText.length },
-    'Script generated successfully'
-  );
+  const wordCount          = fullText.split(/\s+/).length;
+  const estimatedDurationSec = Math.ceil((wordCount / 140) * 60);
+  const title              = articles[0]?.headlineVi ?? articles[0]?.headlineEn ?? 'Bản tin';
 
-  return { title, fullText, segments, estimatedDurationSec };
+  logger.info({ trend, wordCount, estimatedDurationSec }, 'Script generated');
+
+  return { title, fullText, segments, estimatedDurationSec, trend };
 }

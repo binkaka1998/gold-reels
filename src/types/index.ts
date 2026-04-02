@@ -20,6 +20,7 @@ export interface GeneratedScript {
   fullText: string;
   segments: ScriptSegment[];
   estimatedDurationSec: number;
+  trend: 'uptrend' | 'downtrend';
 }
 
 export interface ScriptSegment {
