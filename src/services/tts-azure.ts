@@ -21,48 +21,71 @@ const logger = getLogger('tts-azure');
 
 // ─── SSML builder ─────────────────────────────────────────────────────────────
 //
-// Mục tiêu: giọng MC bản tin tài chính — rõ ràng, có nhịp, không AI quá mức.
+// NamMinh (vi-VN-NamMinhNeural):
+//   - Giọng nam miền Nam, neutral style
+//   - rate: dùng số tuyệt đối (medium=100%) thay vì % delta để ổn định hơn
+//   - pitch: Hz thay vì % — chính xác hơn, ít bị AI-sounding
+//   - "mất chữ" trước đây do insertBreaks chạy SAU escape → <break> bị escape thành text
+//     Fix: tách text thành segments, escape từng segment, join với break tags
 //
-// NamMinh (vi-VN-NamMinhNeural) characteristics:
-//   - Giọng nam miền Nam, tự nhiên
-//   - Dễ bị nghe "đều đều AI" nếu rate quá nhanh hoặc pitch không đổi
-//   - Cần rate vừa phải + pitch hơi thấp + break ở dấu câu để có cảm giác "đọc tin"
-//
-// Reels (~75s): rate +12%, pitch -4% — nhanh có kiểm soát như MC thời sự buổi sáng
-// Video (~5p): rate +5%, pitch -5% — chậm hơn, trầm hơn cho phân tích chuyên sâu
+// Reels: rate 115%, pitch -8Hz — MC bản tin buổi sáng, nhanh rõ
+// Video: rate 105%, pitch -10Hz — chuyên gia phân tích, trầm chắc
 
-function insertBreaks(text: string): string {
-  // Thêm break ngắn sau dấu phẩy, chấm phẩy để tạo nhịp thở tự nhiên
-  // Không thêm sau dấu chấm vì Azure tự xử lý pause ở cuối câu
+function escapeXml(text: string): string {
   return text
-      .replace(/,\s+/g, ', <break time="150ms"/> ')
-      .replace(/;\s+/g, '; <break time="200ms"/> ')
-      .replace(/\.\s+([A-ZÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝ])/g,
-          '. <break time="300ms"/> $1');
-}
-
-function buildSsml(text: string, voice: string, mode: 'reels' | 'video'): string {
-  const prosody =
-      mode === 'reels'
-          ? { rate: '+12%', pitch: '-4%', volume: '+8%' }   // Nhanh, rõ, hơi trầm — bản tin vắn
-          : { rate: '+5%',  pitch: '-5%', volume: '+6%' };  // Vừa phải, trầm — phân tích sâu
-
-  // Sanitize XML special characters
-  const escaped = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
+}
 
-  // Thêm break sau khi sanitize (break tags cần ở dạng XML thuần)
-  const withBreaks = insertBreaks(escaped);
+function buildSsml(text: string, voice: string, mode: 'reels' | 'video'): string {
+  const prosody = mode === 'reels'
+      ? { rate: '115%',  pitch: '-8Hz',  volume: '+8%' }
+      : { rate: '105%',  pitch: '-10Hz', volume: '+6%' };
 
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="vi-VN">
+  // Split text thành segments tại dấu câu TRƯỚC KHI escape
+  // Sau đó escape từng segment rồi join với <break> tags
+  // → tránh <break> bị escape thành &lt;break&gt;
+  const segments = text
+      .split(/([,;。]|\.\s|\!\s|\?\s)/)
+      .reduce<string[]>((acc, part) => {
+        if (!part.trim()) return acc;
+        // Nếu là dấu câu → gắn vào segment trước
+        if (/^[,;。]$/.test(part) || /^[.!?]\s$/.test(part)) {
+          if (acc.length > 0) acc[acc.length - 1] += part.trim();
+        } else {
+          acc.push(part);
+        }
+        return acc;
+      }, []);
+
+  const ssmlParts = segments.map((seg, i) => {
+    const escaped = escapeXml(seg.trim());
+    if (!escaped) return '';
+
+    // Xác định loại break dựa vào ký tự kết thúc của segment
+    const lastChar = seg.trimEnd().slice(-1);
+    const breakAfter = (i < segments.length - 1)
+        ? (lastChar === ',' ? '<break time="150ms"/>'
+            : lastChar === ';' ? '<break time="200ms"/>'
+                : /[.!?。]/.test(lastChar) ? '<break time="280ms"/>'
+                    : '')
+        : '';
+
+    return escaped + breakAfter;
+  });
+
+  const body = ssmlParts.filter(Boolean).join(' ');
+
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="vi-VN">
   <voice name="${voice}">
-    <prosody rate="${prosody.rate}" pitch="${prosody.pitch}" volume="${prosody.volume}">
-      ${withBreaks}
-    </prosody>
+    <mstts:express-as style="newscast">
+      <prosody rate="${prosody.rate}" pitch="${prosody.pitch}" volume="${prosody.volume}">
+        ${body}
+      </prosody>
+    </mstts:express-as>
   </voice>
 </speak>`;
 }
