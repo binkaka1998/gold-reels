@@ -37,10 +37,20 @@ CẤU TRÚC (150–170 từ):
 1. Mở đầu: nêu ngay số liệu nổi bật nhất.
 2. Diễn biến (2–3 câu): mức thay đổi, nguyên nhân chính.
 3. Bối cảnh (1–2 câu): yếu tố vĩ mô nếu có.
-4. Nhận định (1 câu): khách quan, không khuyến nghị mua/bán.
+4. Nhận định (1 câu): khách quan, không khuyến nghị mua hoặc bán.
 5. Kết (nguyên văn): "${CLOSING}"
 
-PHONG CÁCH: MC bản tin — ngắn gọn, súc tích, không hoa mỹ, không clickbait. Số tiền viết bằng chữ lần đầu.
+YÊU CẦU QUAN TRỌNG CHO TTS:
+- Viết số tiền hoàn toàn bằng chữ ở lần đầu tiên (ví dụ: ba triệu ba trăm nghìn đồng mỗi lượng).
+- Không dùng ký hiệu "/", thay bằng "mỗi" (ví dụ: đồng mỗi lượng).
+- Không dùng dấu phẩy trong số (ví dụ: không viết 3,3 mà viết ba phẩy ba hoặc ba chấm ba tùy ngữ cảnh đọc tự nhiên).
+- Tránh viết số dạng 1.234.567 → chuyển thành chữ đầy đủ.
+- Viết câu rõ ràng, có nhịp nghỉ tự nhiên, tránh câu quá dài.
+- Ưu tiên cách đọc dễ hiểu cho giọng AI, không dùng ký hiệu đặc biệt.
+- Không viết tắt.
+
+PHONG CÁCH:
+MC bản tin — ngắn gọn, súc tích, rõ ràng, dễ nghe, không hoa mỹ, không giật tít.
 
 TRẢ VỀ JSON (không có text nào ngoài JSON):
 {"trend":"uptrend hoặc downtrend","script":"toàn bộ script"}`;
