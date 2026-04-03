@@ -243,6 +243,7 @@ export interface DbSourceArticle {
   shortEn:     string | null;
   contentEn:   string;
   contentVi:   string | null;
+  detailLink:  string;
   pageCited:   string;
   category:    string;
   publishedAt: Date | null;
@@ -269,6 +270,7 @@ export async function fetchLatestByAuthor(
       shortEn:     true,
       contentEn:   true,
       contentVi:   true,
+      detailLink:  true,
       pageCited:   true,
       category:    true,
       publishedAt: true,

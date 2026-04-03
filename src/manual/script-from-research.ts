@@ -15,9 +15,10 @@ const logger = getLogger('script-generator-manual');
 export type TrendDirection = 'uptrend' | 'downtrend';
 
 export interface GeneratedManualScript {
-  fullText: string;
-  estimatedDurationSec: number;
-  trend: TrendDirection;
+    fullText: string;
+    estimatedDurationSec: number;
+    trend: TrendDirection;
+    thumbnail: string;
 }
 
 const CLOSING = 'Hãy theo dõi page Giá Vàng 24 News để có các tin tức cập nhật về giá vàng mới nhất nhé. Cảm ơn các bạn!';
@@ -25,7 +26,7 @@ const CLOSING = 'Hãy theo dõi page Giá Vàng 24 News để có các tin tức
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
 function buildReelsPrompt(content: string): string {
-  return `Bạn là MC bản tin tài chính của kênh Giá Vàng 24 News. Nhiệm vụ: đọc bản tin vắn về giá vàng hôm nay dựa trên nội dung bên dưới.
+    return `Bạn là MC bản tin tài chính của kênh Giá Vàng 24 News. Nhiệm vụ: đọc bản tin vắn về giá vàng hôm nay dựa trên nội dung bên dưới.
 
 NỘI DUNG GỐC:
 ${content}
@@ -52,12 +53,13 @@ LƯU Ý:
 TRẢ VỀ JSON theo đúng format sau, không có text nào ngoài JSON:
 {
   "trend": "uptrend" hoặc "downtrend" (dựa trên xu hướng giá vàng trong bài),
+  "thumbnail": "1 câu ngắn dưới 10 từ làm thumbnail — nêu số liệu nổi bật nhất",
   "script": "toàn bộ văn bản script thuần túy ở đây"
 }`;
 }
 
 function buildVideoPrompt(content: string): string {
-  return `Bạn là chuyên gia phân tích thị trường vàng của kênh Giá Vàng 24 News. Nhiệm vụ: viết script phân tích ngắn gọn 3 phút dựa trên nội dung bên dưới.
+    return `Bạn là chuyên gia phân tích thị trường vàng của kênh Giá Vàng 24 News. Nhiệm vụ: viết script phân tích ngắn gọn 3 phút dựa trên nội dung bên dưới.
 
 NỘI DUNG GỐC:
 ${content}
@@ -84,6 +86,7 @@ LƯU Ý:
 TRẢ VỀ JSON theo đúng format sau, không có text nào ngoài JSON:
 {
   "trend": "uptrend" hoặc "downtrend" (dựa trên xu hướng giá vàng trong bài),
+  "thumbnail": "1 câu ngắn dưới 10 từ làm thumbnail — nêu số liệu nổi bật nhất",
   "script": "toàn bộ văn bản script thuần túy ở đây"
 }`;
 }
@@ -94,80 +97,79 @@ export async function generateScriptFromContent(
     content: string,
     mode: 'reels' | 'video',
 ): Promise<GeneratedManualScript> {
-  const config = getConfig();
-  const prompt = mode === 'reels' ? buildReelsPrompt(content) : buildVideoPrompt(content);
+    const config = getConfig();
+    const prompt = mode === 'reels' ? buildReelsPrompt(content) : buildVideoPrompt(content);
 
-  logger.info({ mode, contentLen: content.length, model: config.gemini.scriptModel }, 'Generating script + trend');
+    logger.info({ mode, contentLen: content.length, model: config.gemini.scriptModel }, 'Generating script + trend');
 
-  const genAI = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+    const genAI = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
-  let parsed: { trend: string; script: string };
+    let parsed: { trend: string; script: string; thumbnail: string };
 
-  try {
-    const result = await genAI.models.generateContent({
-      model: config.gemini.scriptModel,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        maxOutputTokens: 65_535,
-        temperature: 0.7,
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
+    try {
+        const result = await genAI.models.generateContent({
+            model: config.gemini.scriptModel,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: {
+                maxOutputTokens: 65_535,
+                temperature: 0.7,
+                tools: [{ googleSearch: {} }],
+                thinkingConfig: { thinkingBudget: 0 },
+            },
+        });
 
-    const raw = (result.text ?? '').trim();
+        const raw = (result.text ?? '').trim();
 
-    const candidate = result.candidates?.[0];
-    const finishReason = candidate?.finishReason;
-    const tokenCount = result.usageMetadata?.candidatesTokenCount;
+        const candidate = result.candidates?.[0];
+        const finishReason = candidate?.finishReason;
+        const tokenCount = result.usageMetadata?.candidatesTokenCount;
 
-    logger.info({ finishReason, outputTokens: tokenCount, rawLen: raw.length }, 'Gemini response');
+        logger.info({ finishReason, outputTokens: tokenCount, rawLen: raw.length }, 'Gemini response');
 
-    if (finishReason === 'SAFETY') {
-      throw new Error('Gemini safety filter chặn output. Thử đổi cách diễn đạt topic.');
+        if (finishReason === 'SAFETY') {
+            throw new Error('Gemini safety filter chặn output. Thử đổi cách diễn đạt topic.');
+        }
+        if (finishReason === 'MAX_TOKENS') {
+            logger.warn({ outputTokens: tokenCount }, 'MAX_TOKENS — script có thể bị cắt');
+        }
+
+        // Parse JSON — strip markdown fences, extract JSON object từ bất kỳ vị trí nào
+        // Gemini đôi khi thêm text trước/sau JSON khi dùng googleSearch tool
+        const jsonMatch = raw.match(/\{[\s\S]*"trend"[\s\S]*"script"[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error(`Không tìm thấy JSON trong response. Raw (200 chars): ${raw.slice(0, 200)}`);
+        }
+        parsed = JSON.parse(jsonMatch[0]) as { trend: string; script: string; thumbnail: string };
+
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('API_KEY_INVALID') || msg.includes('401') || msg.includes('403')) {
+            throw new Error(`Gemini API key không hợp lệ — kiểm tra GEMINI_API_KEY. Chi tiết: ${msg}`);
+        }
+        if (msg.includes('JSON') || msg.includes('parse')) {
+            throw new Error(`Gemini không trả về JSON hợp lệ. Chi tiết: ${msg}`);
+        }
+        throw err;
     }
-    if (finishReason === 'MAX_TOKENS') {
-      logger.warn({ outputTokens: tokenCount }, 'MAX_TOKENS — script có thể bị cắt');
+
+    const trend: TrendDirection =
+        parsed.trend === 'downtrend' ? 'downtrend' : 'uptrend';
+
+    const thumbnail = (parsed.thumbnail ?? '').trim();
+
+    let fullText = (parsed.script ?? '').trim();
+    if (!fullText || fullText.length < 80) {
+        throw new Error(`Script quá ngắn (${fullText.length} chars). Response: ${JSON.stringify(parsed)}`);
     }
 
-    // Parse JSON — strip markdown fences, extract JSON object từ bất kỳ vị trí nào
-    // Gemini đôi khi thêm text trước/sau JSON khi dùng googleSearch tool
-    const jsonMatch = raw.match(/\{[\s\S]*"trend"[\s\S]*"script"[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error(`Không tìm thấy JSON trong response. Raw (200 chars): ${raw.slice(0, 200)}`);
+    if (!fullText.includes('Giá Vàng 24 News')) {
+        fullText = fullText + '\n\n' + CLOSING;
     }
-    parsed = JSON.parse(jsonMatch[0]) as { trend: string; script: string };
 
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('API_KEY_INVALID') || msg.includes('401') || msg.includes('403')) {
-      throw new Error(`Gemini API key không hợp lệ — kiểm tra GEMINI_API_KEY. Chi tiết: ${msg}`);
-    }
-    if (msg.includes('JSON') || msg.includes('parse')) {
-      throw new Error(`Gemini không trả về JSON hợp lệ. Chi tiết: ${msg}`);
-    }
-    throw err;
-  }
+    const wordCount = fullText.split(/\s+/).length;
+    const estimatedDurationSec = Math.ceil((wordCount / 140) * 60);
 
-  // Validate trend
-  const trend: TrendDirection =
-      parsed.trend === 'downtrend' ? 'downtrend' : 'uptrend';
+    logger.info({ trend, thumbnail, wordCount, estimatedDurationSec }, 'Script generated');
 
-  // Validate script
-  let fullText = (parsed.script ?? '').trim();
-  if (!fullText || fullText.length < 80) {
-    throw new Error(`Script quá ngắn (${fullText.length} chars). Response: ${JSON.stringify(parsed)}`);
-  }
-
-  // Đảm bảo câu kết luôn có mặt
-  if (!fullText.includes('Giá Vàng 24 News')) {
-    fullText = fullText + '\n\n' + CLOSING;
-  }
-
-  const wordCount = fullText.split(/\s+/).length;
-  const estimatedDurationSec = Math.ceil((wordCount / 140) * 60);
-
-  logger.info({ trend, wordCount, estimatedDurationSec }, 'Script generated');
-
-  return { fullText, estimatedDurationSec, trend };
+    return { fullText, estimatedDurationSec, trend, thumbnail };
 }

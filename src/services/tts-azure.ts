@@ -21,71 +21,74 @@ const logger = getLogger('tts-azure');
 
 // ─── SSML builder ─────────────────────────────────────────────────────────────
 //
-// NamMinh (vi-VN-NamMinhNeural):
-//   - Giọng nam miền Nam, neutral style
-//   - rate: dùng số tuyệt đối (medium=100%) thay vì % delta để ổn định hơn
-//   - pitch: Hz thay vì % — chính xác hơn, ít bị AI-sounding
-//   - "mất chữ" trước đây do insertBreaks chạy SAU escape → <break> bị escape thành text
-//     Fix: tách text thành segments, escape từng segment, join với break tags
+// NamMinh (vi-VN-NamMinhNeural)
 //
-// Reels: rate 115%, pitch -8Hz — MC bản tin buổi sáng, nhanh rõ
-// Video: rate 105%, pitch -10Hz — chuyên gia phân tích, trầm chắc
+// Azure Neural voice rate quirks:
+//   - rate="100%" = medium speed (không phải "bình thường" — Azure có thể interpret khác)
+//   - Dùng giá trị relative dạng "-X%" (delta từ default) thay vì absolute %
+//   - Hoặc dùng keyword: "x-slow" | "slow" | "medium" | "fast" | "x-fast"
+//   - "medium" = tốc độ tự nhiên nhất, không bị override
+//   - Không dùng mstts:express-as style — style override prosody rate
+//
+// Reels: rate="slow"  — rõ ràng, không vội
+// Video: rate="slow"  — trầm, có trọng lượng
 
 function escapeXml(text: string): string {
-  return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }
 
 function buildSsml(text: string, voice: string, mode: 'reels' | 'video'): string {
-  const prosody = mode === 'reels'
-      ? { rate: '115%',  pitch: '-8Hz',  volume: '+8%' }
-      : { rate: '105%',  pitch: '-10Hz', volume: '+6%' };
+    // "slow" = khoảng 80% default — nghe tự nhiên nhất cho bản tin tài chính
+    // Dùng keyword thay vì % để Azure Neural voice xử lý đúng
+    const prosody = mode === 'reels'
+        ? { rate: 'fast',     pitch: '-10Hz', volume: '+10%' }
+        : { rate: 'fast',   pitch: '-12Hz', volume: '+8%'  };
 
-  // Split text thành segments tại dấu câu TRƯỚC KHI escape
-  // Sau đó escape từng segment rồi join với <break> tags
-  // → tránh <break> bị escape thành &lt;break&gt;
-  const segments = text
-      .split(/([,;。]|\.\s|\!\s|\?\s)/)
-      .reduce<string[]>((acc, part) => {
-        if (!part.trim()) return acc;
-        // Nếu là dấu câu → gắn vào segment trước
-        if (/^[,;。]$/.test(part) || /^[.!?]\s$/.test(part)) {
-          if (acc.length > 0) acc[acc.length - 1] += part.trim();
-        } else {
-          acc.push(part);
+    const parts: string[] = [];
+
+    for (const para of text.split(/\n\n+/)) {
+        const trimmed = para.trim();
+        if (!trimmed) continue;
+
+        const sentences = trimmed
+            .split(/(?<=[.!?,;])\s+/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        for (let i = 0; i < sentences.length; i++) {
+            const s        = sentences[i]!;
+            const escaped  = escapeXml(s);
+            const lastChar = s.slice(-1);
+
+            let breakTag = '';
+            if (i < sentences.length - 1) {
+                if (lastChar === ',')             breakTag = '<break time="120ms"/>';
+                else if (lastChar === ';')        breakTag = '<break time="180ms"/>';
+                else if (/[.!?]/.test(lastChar)) breakTag = '<break time="250ms"/>';
+            }
+
+            parts.push(escaped + breakTag);
         }
-        return acc;
-      }, []);
 
-  const ssmlParts = segments.map((seg, i) => {
-    const escaped = escapeXml(seg.trim());
-    if (!escaped) return '';
+        if (text.includes('\n\n')) {
+            parts.push('<break time="350ms"/>');
+        }
+    }
 
-    // Xác định loại break dựa vào ký tự kết thúc của segment
-    const lastChar = seg.trimEnd().slice(-1);
-    const breakAfter = (i < segments.length - 1)
-        ? (lastChar === ',' ? '<break time="150ms"/>'
-            : lastChar === ';' ? '<break time="200ms"/>'
-                : /[.!?。]/.test(lastChar) ? '<break time="280ms"/>'
-                    : '')
-        : '';
+    const body = parts.join(' ');
 
-    return escaped + breakAfter;
-  });
-
-  const body = ssmlParts.filter(Boolean).join(' ');
-
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="vi-VN">
+    // Không dùng mstts:express-as — để Azure dùng giọng neutral
+    // cho phép prosody rate/pitch hoạt động đúng
+    return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="vi-VN">
   <voice name="${voice}">
-    <mstts:express-as style="newscast">
-      <prosody rate="${prosody.rate}" pitch="${prosody.pitch}" volume="${prosody.volume}">
-        ${body}
-      </prosody>
-    </mstts:express-as>
+    <prosody rate="${prosody.rate}" pitch="${prosody.pitch}" volume="${prosody.volume}">
+      ${body}
+    </prosody>
   </voice>
 </speak>`;
 }
@@ -97,58 +100,58 @@ export async function synthesizeAzure(
     outputPath: string,
     mode: 'reels' | 'video'
 ): Promise<TtsResult> {
-  const config = getConfig();
-  const { speechKey, speechRegion, voice } = config.azure;
+    const config = getConfig();
+    const { speechKey, speechRegion, voice } = config.azure;
 
-  logger.info({ voice, region: speechRegion, charCount: text.length, mode }, 'Azure TTS start');
+    logger.info({ voice, region: speechRegion, charCount: text.length, mode }, 'Azure TTS start');
 
-  return new Promise<TtsResult>((resolve, reject) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(speechKey, speechRegion);
+    return new Promise<TtsResult>((resolve, reject) => {
+        const speechConfig = sdk.SpeechConfig.fromSubscription(speechKey, speechRegion);
 
-    // WAV 24kHz mono PCM — best quality, no lossy encoding artifacts
-    speechConfig.speechSynthesisOutputFormat =
-        sdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm;
+        // WAV 24kHz mono PCM — best quality, no lossy encoding artifacts
+        speechConfig.speechSynthesisOutputFormat =
+            sdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm;
 
-    const audioConfig = sdk.AudioConfig.fromAudioFileOutput(outputPath);
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
+        const audioConfig = sdk.AudioConfig.fromAudioFileOutput(outputPath);
+        const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
-    const wordTimings: WordTiming[] = [];
+        const wordTimings: WordTiming[] = [];
 
-    // WordBoundary events: fired per word (and per punctuation, which we filter out)
-    // Azure timestamps are in 100-nanosecond "ticks" — divide by 10,000 for ms.
-    synthesizer.wordBoundary = (
-        _s: sdk.SpeechSynthesizer,
-        e: sdk.SpeechSynthesisWordBoundaryEventArgs
-    ) => {
-      if (e.boundaryType === sdk.SpeechSynthesisBoundaryType.Word) {
-        wordTimings.push({
-          word: e.text,
-          startMs: Math.round(e.audioOffset / 10_000),
-          durationMs: Math.round(e.duration / 10_000),
-        });
-      }
-    };
+        // WordBoundary events: fired per word (and per punctuation, which we filter out)
+        // Azure timestamps are in 100-nanosecond "ticks" — divide by 10,000 for ms.
+        synthesizer.wordBoundary = (
+            _s: sdk.SpeechSynthesizer,
+            e: sdk.SpeechSynthesisWordBoundaryEventArgs
+        ) => {
+            if (e.boundaryType === sdk.SpeechSynthesisBoundaryType.Word) {
+                wordTimings.push({
+                    word: e.text,
+                    startMs: Math.round(e.audioOffset / 10_000),
+                    durationMs: Math.round(e.duration / 10_000),
+                });
+            }
+        };
 
-    const ssml = buildSsml(text, voice, mode);
+        const ssml = buildSsml(text, voice, mode);
 
-    synthesizer.speakSsmlAsync(
-        ssml,
-        (result) => {
-          synthesizer.close();
+        synthesizer.speakSsmlAsync(
+            ssml,
+            (result) => {
+                synthesizer.close();
 
-          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-            const durationMs = Math.round(result.audioDuration / 10_000);
-            logger.info({ durationMs, wordCount: wordTimings.length, outputPath }, 'Azure TTS complete');
-            resolve({ audioPath: outputPath, wordTimings, durationMs });
-          } else {
-            const details = sdk.CancellationDetails.fromResult(result);
-            reject(new Error(`Azure TTS cancelled: ${details.reason} — ${details.errorDetails ?? 'no detail'}`));
-          }
-        },
-        (err) => {
-          synthesizer.close();
-          reject(new Error(`Azure TTS error: ${err}`));
-        }
-    );
-  });
+                if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                    const durationMs = Math.round(result.audioDuration / 10_000);
+                    logger.info({ durationMs, wordCount: wordTimings.length, outputPath }, 'Azure TTS complete');
+                    resolve({ audioPath: outputPath, wordTimings, durationMs });
+                } else {
+                    const details = sdk.CancellationDetails.fromResult(result);
+                    reject(new Error(`Azure TTS cancelled: ${details.reason} — ${details.errorDetails ?? 'no detail'}`));
+                }
+            },
+            (err) => {
+                synthesizer.close();
+                reject(new Error(`Azure TTS error: ${err}`));
+            }
+        );
+    });
 }
