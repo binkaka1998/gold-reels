@@ -9,6 +9,7 @@
 //   - Output: H.264/AAC MP4 with faststart for streaming.
 
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import type { PipelineMode } from '../types/index.js';
 import { getLogger } from '../utils/logger.js';
 
@@ -108,7 +109,7 @@ function buildFilterComplex(
         const outLabel = i === segments.length - 1 ? '[vout]' : `[x${i}]`;
         parts.push(
             `${prev}[s${i}]xfade=transition=fade:duration=${XFADE_DURATION_SEC}:` +
-            `offset=${offset.toFixed(3)}:${outLabel}`  // ← thêm : trước outLabel
+            `offset=${offset.toFixed(3)}${outLabel}`
         );
         prev = `[x${i}]`;
     }
@@ -167,12 +168,20 @@ function buildThumbnailFilter(
     const lines = wrapText(text, maxChars);
     const brand = 'GVNews24';
 
-    // Dùng spawn nên không cần escape shell — chỉ cần escape đúng theo drawtext syntax
-    // enable: dùng lte() thay vì between() để tránh dấu phẩy trong filter option
-    const enable = `enable=lte(t\\,5)`;
+    // Resolve font tại runtime — thử Noto trước, fallback DejaVu, skip nếu không có
+    const FONT_CANDIDATES = [
+        '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',
+        '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    ];
+    const boldFont = FONT_CANDIDATES.find(existsSync);
+    if (!boldFont) {
+        logger.warn('No bold font found — skipping thumbnail overlay');
+        return [];
+    }
 
-    // fontfile không cần quote khi dùng spawn
-    const boldFont = '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf';
+    const enable = `enable=lte(t\\,5)`;
 
     const brandFilter =
         `drawtext=text='${escapeDrawtext(brand)}':` +
@@ -235,23 +244,18 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
     // Cần chain: [vpre] → shadow → [vs] → main → [vout]
     if (thumbnailText?.trim()) {
         const filters = buildThumbnailFilter(thumbnailText.trim(), width, height, mode);
-
-        // Dùng lastIndexOf thay vì regex để replace [vout] cuối cùng — an toàn hơn
-        const lastVout = filterComplex.lastIndexOf('[vout]');
-        if (lastVout === -1) throw new Error('buildFilterComplex: [vout] label not found');
-
-        // Thay [vout] cuối bằng [tbase], rồi chain từng drawtext filter
-        let chain = filterComplex.slice(0, lastVout) + '[tbase]' + filterComplex.slice(lastVout + 6);
-        let prev = 'tbase';
-
-        filters.forEach((f, i) => {
-            const outLabel = i === filters.length - 1 ? 'vout' : `t${i}`;
-            // Format: ;[prev_label]drawtext=...[out_label]
-            chain += `;[${prev}]${f}[${outLabel}]`;
-            prev = outLabel;
-        });
-
-        filterComplex = chain;
+        if (filters.length > 0) {
+            const lastVout = filterComplex.lastIndexOf('[vout]');
+            if (lastVout === -1) throw new Error('buildFilterComplex: [vout] label not found');
+            let chain = filterComplex.slice(0, lastVout) + '[tbase]' + filterComplex.slice(lastVout + 6);
+            let prev = 'tbase';
+            filters.forEach((f, i) => {
+                const outLabel = i === filters.length - 1 ? 'vout' : `t${i}`;
+                chain += `;[${prev}]${f}[${outLabel}]`;
+                prev = outLabel;
+            });
+            filterComplex = chain;
+        }
     }
 
     const audioIdx = segments.length;
