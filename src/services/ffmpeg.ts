@@ -181,14 +181,13 @@ function buildThumbnailFilter(
         return [];
     }
 
-    const enable = `enable=lte(t\\,5)`;
+    const commonOpts = `fix_bounds=1:expansion=none`;
 
     const brandFilter =
         `drawtext=text='${escapeDrawtext(brand)}':` +
         `fontsize=${brandSize}:fontfile=${boldFont}:fontcolor=#FFD700:` +
         `box=1:boxcolor=black@0.92:boxborderw=24:` +
-        `x=(w-text_w)/2:y=h*0.20:` +
-        `fix_bounds=1:${enable}:expansion=none`;
+        `x=(w-text_w)/2:y=h*0.20:${commonOpts}`;
 
     const textFilters = lines.map((line, i) => {
         const escaped = escapeDrawtext(line);
@@ -197,8 +196,7 @@ function buildThumbnailFilter(
             `drawtext=text='${escaped}':` +
             `fontsize=${textSize}:fontfile=${boldFont}:fontcolor=white:` +
             `box=1:boxcolor=black@0.92:boxborderw=20:` +
-            `x=(w-text_w)/2:y=h*0.20+${yOffset}:` +
-            `fix_bounds=1:${enable}:expansion=none`
+            `x=(w-text_w)/2:y=h*0.20+${yOffset}:${commonOpts}`
         );
     });
 
