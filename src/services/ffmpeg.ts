@@ -8,23 +8,27 @@
 //   - Crossfade transition between images using xfade filter.
 //   - Output: H.264/AAC MP4 with faststart for streaming.
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import type { PipelineMode } from '../types/index.js';
 import { getLogger } from '../utils/logger.js';
 
-const execAsync = promisify(exec);
 const logger = getLogger('ffmpeg');
 
-const MIN_IMAGE_DURATION_SEC = 4;  // Each image shown at least 4s
-const XFADE_DURATION_SEC = 0.5;    // Crossfade between slides
+const MIN_IMAGE_DURATION_SEC = 4;
+const XFADE_DURATION_SEC = 0.5;
 
 // ─── Audio duration probe ─────────────────────────────────────────────────────
 
 export async function getAudioDurationMs(audioPath: string): Promise<number> {
-    const { stdout } = await execAsync(
-        `ffprobe -v quiet -print_format json -show_streams "${audioPath}"`
-    );
+    const stdout = await new Promise<string>((resolve, reject) => {
+        const proc = spawn('ffprobe', [
+            '-v', 'quiet', '-print_format', 'json', '-show_streams', audioPath,
+        ], { stdio: ['ignore', 'pipe', 'ignore'] });
+        let out = '';
+        proc.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
+        proc.on('close', (code) => code === 0 ? resolve(out) : reject(new Error(`ffprobe exit ${code}`)));
+        proc.on('error', reject);
+    });
 
     const probe = JSON.parse(stdout) as {
         streams: Array<{ duration?: string; codec_type?: string }>;
@@ -163,9 +167,10 @@ function buildThumbnailFilter(
     const lines = wrapText(text, maxChars);
     const brand = 'GVNews24';
 
-    // enable='between(t,0,5)' — dấu phẩy trong between() phải escape thành \,
-    // vì filter_complex dùng dấu phẩy làm delimiter
-    const enable = `enable='between(t\\,0\\,5)'`;
+    // enable expression — không dùng single quote bên trong filter_complex
+    // vì toàn bộ filter_complex đã được wrap trong double quote khi truyền vào shell
+    // Dùng gt/lt expression thay vì between() để tránh vấn đề escape dấu phẩy
+    const enable = `enable='lte(t\\,5)'`;
 
     // Ưu tiên NotoSans Bold (cài qua fonts-noto trong GitHub Actions)
     // Fallback DejaVu nếu chưa cài Noto
@@ -226,10 +231,6 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
     const crf = mode === 'reels' ? 26 : 22;
     const audioBitrate = mode === 'reels' ? '128k' : '192k';
 
-    const inputs = segments
-        .map((s) => `-loop 1 -framerate ${fps} -t ${s.durationSec} -i "${s.imagePath}"`)
-        .join(' ');
-
     let filterComplex = buildFilterComplex(segments, width, height);
 
     // Thêm drawtext overlay nếu có thumbnailText
@@ -250,34 +251,49 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
 
     const audioIdx = segments.length;
 
-    const cmd = [
-        'ffmpeg -y',
-        inputs,
-        `-i "${audioPath}"`,
-        `-filter_complex "${filterComplex}"`,
-        `-map "[vout]"`,
-        `-map ${audioIdx}:a`,
-        `-c:v libx264 -preset medium -crf ${crf} -r ${fps}`,
-        `-c:a aac -b:a ${audioBitrate}`,
-        `-pix_fmt yuv420p`,
-        `-movflags +faststart`,
-        `-shortest`,
-        `"${outputPath}"`,
-    ].join(' ');
+    // Build args array per segment — không split string để tránh vỡ path có space
+    const imageArgs: string[] = [];
+    for (const s of segments) {
+        imageArgs.push('-loop', '1', '-framerate', String(fps), '-t', String(s.durationSec), '-i', s.imagePath);
+    }
 
-    logger.debug({ cmdPreview: cmd.slice(0, 400) }, 'FFmpeg command');
+    // Dùng args array thay vì string — tránh hoàn toàn shell quoting issues
+    // filter_complex truyền thẳng vào spawn, không qua shell
+    const args = [
+        '-y',
+        ...imageArgs,
+        '-i', audioPath,
+        '-filter_complex', filterComplex,
+        '-map', '[vout]',
+        '-map', `${audioIdx}:a`,
+        '-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf), '-r', String(fps),
+        '-c:a', 'aac', '-b:a', audioBitrate,
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        '-shortest',
+        outputPath,
+    ];
+
+    logger.debug({ argsLen: args.length, filterLen: filterComplex.length }, 'FFmpeg args');
 
     const t0 = Date.now();
-    try {
-        const { stderr } = await execAsync(cmd, { maxBuffer: 50 * 1024 * 1024 });
-        const elapsedSec = ((Date.now() - t0) / 1000).toFixed(1);
-        const lastLine = stderr.split('\n').filter(Boolean).pop() ?? '';
-        logger.info({ outputPath, elapsedSec, lastLine }, 'Slideshow built');
-    } catch (err) {
-        const e = err as { stderr?: string; message?: string };
-        logger.error({ stderr: e.stderr?.slice(-3000) }, 'FFmpeg failed');
-        throw new Error(`FFmpeg failed: ${e.message ?? String(err)}`);
-    }
+    await new Promise<void>((resolve, reject) => {
+        const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderrBuf = '';
+        proc.stderr?.on('data', (d: Buffer) => { stderrBuf += d.toString(); });
+        proc.on('close', (code) => {
+            if (code === 0) {
+                const elapsedSec = ((Date.now() - t0) / 1000).toFixed(1);
+                const lastLine = stderrBuf.split('\n').filter(Boolean).pop() ?? '';
+                logger.info({ outputPath, elapsedSec, lastLine }, 'Slideshow built');
+                resolve();
+            } else {
+                logger.error({ stderr: stderrBuf.slice(-3000) }, 'FFmpeg failed');
+                reject(new Error(`FFmpeg failed (code ${code}): ${stderrBuf.slice(-500)}`));
+            }
+        });
+        proc.on('error', (err) => reject(new Error(`FFmpeg spawn error: ${err.message}`)));
+    });
 
     return outputPath;
 }
