@@ -167,29 +167,26 @@ function buildThumbnailFilter(
     const lines = wrapText(text, maxChars);
     const brand = 'GVNews24';
 
-    // enable expression — không dùng single quote bên trong filter_complex
-    // vì toàn bộ filter_complex đã được wrap trong double quote khi truyền vào shell
-    // Dùng gt/lt expression thay vì between() để tránh vấn đề escape dấu phẩy
-    const enable = `enable='lte(t\\,5)'`;
+    // Dùng spawn nên không cần escape shell — chỉ cần escape đúng theo drawtext syntax
+    // enable: dùng lte() thay vì between() để tránh dấu phẩy trong filter option
+    const enable = `enable=lte(t\\,5)`;
 
-    // Ưu tiên NotoSans Bold (cài qua fonts-noto trong GitHub Actions)
-    // Fallback DejaVu nếu chưa cài Noto
+    // fontfile không cần quote khi dùng spawn
     const boldFont = '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf';
 
     const brandFilter =
         `drawtext=text='${escapeDrawtext(brand)}':` +
-        `fontsize=${brandSize}:fontfile='${boldFont}':fontcolor=#FFD700:` +
+        `fontsize=${brandSize}:fontfile=${boldFont}:fontcolor=#FFD700:` +
         `box=1:boxcolor=black@0.92:boxborderw=24:` +
         `x=(w-text_w)/2:y=h*0.20:` +
         `fix_bounds=1:${enable}:expansion=none`;
 
     const textFilters = lines.map((line, i) => {
         const escaped = escapeDrawtext(line);
-        // y là số nguyên thuần — không string concat với expression
         const yOffset = brandSize + 20 + i * lineH;
         return (
             `drawtext=text='${escaped}':` +
-            `fontsize=${textSize}:fontfile='${boldFont}':fontcolor=white:` +
+            `fontsize=${textSize}:fontfile=${boldFont}:fontcolor=white:` +
             `box=1:boxcolor=black@0.92:boxborderw=20:` +
             `x=(w-text_w)/2:y=h*0.20+${yOffset}:` +
             `fix_bounds=1:${enable}:expansion=none`
@@ -238,14 +235,22 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
     // Cần chain: [vpre] → shadow → [vs] → main → [vout]
     if (thumbnailText?.trim()) {
         const filters = buildThumbnailFilter(thumbnailText.trim(), width, height, mode);
-        // Chain: [vout] → [t0] → [t1] → ... → [vout]
-        let chain = filterComplex.replace(/\[vout\]$/, '[tbase]');
-        let prev = '[tbase]';
+
+        // Dùng lastIndexOf thay vì regex để replace [vout] cuối cùng — an toàn hơn
+        const lastVout = filterComplex.lastIndexOf('[vout]');
+        if (lastVout === -1) throw new Error('buildFilterComplex: [vout] label not found');
+
+        // Thay [vout] cuối bằng [tbase], rồi chain từng drawtext filter
+        let chain = filterComplex.slice(0, lastVout) + '[tbase]' + filterComplex.slice(lastVout + 6);
+        let prev = 'tbase';
+
         filters.forEach((f, i) => {
-            const next = i === filters.length - 1 ? '[vout]' : `[t${i}]`;
-            chain += `;${prev}${f}${next}`;
-            prev = next;
+            const outLabel = i === filters.length - 1 ? 'vout' : `t${i}`;
+            // Format: ;[prev_label]drawtext=...[out_label]
+            chain += `;[${prev}]${f}[${outLabel}]`;
+            prev = outLabel;
         });
+
         filterComplex = chain;
     }
 
