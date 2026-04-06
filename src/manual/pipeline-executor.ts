@@ -126,7 +126,7 @@ export async function executeManualJob(job: ManualJob): Promise<void> {
         const rawVideoPath = path.join(runDir, `output_${request.mode}.mp4`);
         await buildSlideshow({
             mode: request.mode, width, height, fps: 30,
-            imagePaths, audioPath: ttsResult.audioPath, outputPath: rawVideoPath, thumbnailText: thumbnail,
+            imagePaths, audioPath: ttsResult.audioPath, outputPath: rawVideoPath, runDir, thumbnailText: thumbnail,
         });
 
         // ── Step 6: Lưu video ────────────────────────────────────────────────────

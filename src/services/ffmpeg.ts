@@ -9,7 +9,8 @@
 //   - Output: H.264/AAC MP4 with faststart for streaming.
 
 import { spawn } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import type { PipelineMode } from '../types/index.js';
 import { getLogger } from '../utils/logger.js';
 
@@ -122,20 +123,6 @@ function buildFilterComplex(
 // Dùng drawtext filter với font hệ thống (NotoSans hỗ trợ tiếng Việt trên Ubuntu).
 // Text tự wrap dựa vào max_chars, căn giữa dọc/ngang.
 
-function escapeDrawtext(text: string): string {
-    // Với spawn, không qua shell nên không cần escape shell chars
-    // Chỉ cần escape theo FFmpeg drawtext syntax:
-    //   \  → \\    (backslash)
-    //   '  → bỏ luôn — single quote gây lỗi parse dù đã escape
-    //   :  → \:    (option separator)
-    //   %  → \%    (drawtext format char)
-    return text
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, '')       // bỏ dấu nháy đơn — không thể escape an toàn trong drawtext
-        .replace(/:/g, '\\:')
-        .replace(/%/g, '\\%');
-}
-
 // ─── Word wrap cho thumbnail text ────────────────────────────────────────────
 // ffmpeg drawtext không tự wrap — cần tách tay thành dòng trước khi escape.
 // Wrap theo từ, giữ nguyên ký tự, không cắt giữa chữ.
@@ -160,9 +147,8 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
 
 function buildThumbnailFilter(
     text: string,
-    _width: number,
-    _height: number,
     mode: PipelineMode,
+    runDir: string,
 ): string[] {
     const isReels   = mode === 'reels';
     const brandSize = isReels ? 136 : 120;
@@ -173,12 +159,10 @@ function buildThumbnailFilter(
     const lines = wrapText(text, maxChars);
     const brand = 'GVNews24';
 
-    // Resolve font tại runtime — thử Noto trước, fallback DejaVu, skip nếu không có
     const FONT_CANDIDATES = [
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',           // Ubuntu default — luôn có
-        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',   // fonts-liberation
-        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',            // fonts-noto (CJK, hỗ trợ tiếng Việt)
-        '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',               // fonts-noto-core nếu có
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
     ];
     const boldFont = FONT_CANDIDATES.find(existsSync);
     if (!boldFont) {
@@ -188,17 +172,23 @@ function buildThumbnailFilter(
 
     const commonOpts = `fix_bounds=1:expansion=none`;
 
+    // Dùng textfile= thay text= — FFmpeg đọc file UTF-8, không cần escape gì
+    // Ghi từng dòng ra file tạm trong runDir
+    const brandFile = join(runDir, '_thumb_brand.txt');
+    writeFileSync(brandFile, brand, 'utf8');
+
     const brandFilter =
-        `drawtext=text=${escapeDrawtext(brand)}:` +
+        `drawtext=textfile=${brandFile}:` +
         `fontsize=${brandSize}:fontfile=${boldFont}:fontcolor=#FFD700:` +
         `box=1:boxcolor=black@0.92:boxborderw=24:` +
         `x=(w-text_w)/2:y=h*0.20:${commonOpts}`;
 
     const textFilters = lines.map((line, i) => {
-        const escaped = escapeDrawtext(line);
+        const lineFile = join(runDir, `_thumb_line${i}.txt`);
+        writeFileSync(lineFile, line, 'utf8');
         const yOffset = brandSize + 20 + i * lineH;
         return (
-            `drawtext=text=${escaped}:` +
+            `drawtext=textfile=${lineFile}:` +
             `fontsize=${textSize}:fontfile=${boldFont}:fontcolor=white:` +
             `box=1:boxcolor=black@0.92:boxborderw=20:` +
             `x=(w-text_w)/2:y=h*0.20+${yOffset}:${commonOpts}`
@@ -218,11 +208,12 @@ export interface SlideshowConfig {
     imagePaths:     string[];
     audioPath:      string;
     outputPath:     string;
-    thumbnailText?: string;   // Câu subtitle hiện 5s đầu làm thumbnail
+    runDir:         string;        // needed for textfile= temp files
+    thumbnailText?: string;
 }
 
 export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
-    const { mode, width, height, fps, imagePaths, audioPath, outputPath, thumbnailText } = cfg;
+    const { mode, width, height, fps, imagePaths, audioPath, outputPath, runDir, thumbnailText } = cfg;
 
     if (imagePaths.length === 0) throw new Error('buildSlideshow: no images provided');
 
@@ -246,7 +237,7 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
     // buildThumbnailFilter trả về "shadow_filter,main_filter" (2 layers)
     // Cần chain: [vpre] → shadow → [vs] → main → [vout]
     if (thumbnailText?.trim()) {
-        const filters = buildThumbnailFilter(thumbnailText.trim(), width, height, mode);
+        const filters = buildThumbnailFilter(thumbnailText.trim(), mode, runDir);
         if (filters.length > 0) {
             const lastVout = filterComplex.lastIndexOf('[vout]');
             if (lastVout === -1) throw new Error('buildFilterComplex: [vout] label not found');

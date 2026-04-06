@@ -56,7 +56,7 @@ export async function runVideoPipeline(): Promise<PipelineResult> {
         const videoPath = path.join(runDir, 'video.mp4');
         await buildSlideshow({
             mode: 'video', width: config.video.width, height: config.video.height,
-            fps: 30, imagePaths, audioPath: ttsResult.audioPath, outputPath: videoPath, thumbnailText: script.thumbnail,
+            fps: 30, imagePaths, audioPath: ttsResult.audioPath, outputPath: videoPath, runDir, thumbnailText: script.thumbnail,
         });
 
         const article     = articles[0]!;

@@ -56,13 +56,12 @@ export async function runReelsPipeline(): Promise<PipelineResult> {
         const videoPath = path.join(runDir, 'reels.mp4');
         await buildSlideshow({
             mode: 'reels', width: config.reels.width, height: config.reels.height,
-            fps: 30, imagePaths, audioPath: ttsResult.audioPath, outputPath: videoPath, thumbnailText: script.thumbnail,
+            fps: 30, imagePaths, audioPath: ttsResult.audioPath, outputPath: videoPath, runDir, thumbnailText: script.thumbnail,
         });
 
         const article     = articles[0]!;
-        const caption = `🚨 Giá vàng biến động hot!`
-        const headline = `🔥 Thông tin vàng mới nhất - ${article.detailLink}`;
-        const description = caption + `\n${headline}\n#giavang #vanghomnay #tinvang #dautu #taichinh #tinnhanh #capnhat #xuhuong`;
+        const headline    = article.headlineVi ?? article.headlineEn;
+        const description = `📰 ${headline}\n\n#vàng #taichinh #giavang`;
 
         const fbResult = await publishToFacebook({
             videoPath, title: headline.slice(0, 255), description, mode: 'reels',
