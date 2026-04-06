@@ -23,7 +23,7 @@
 #          cache: 'npm'
 #
 #      - name: Install FFmpeg
-#        run: sudo apt-get install -y --no-install-recommends ffmpeg
+#        run: sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto
 #
 #      - name: Install dependencies
 #        run: npm ci

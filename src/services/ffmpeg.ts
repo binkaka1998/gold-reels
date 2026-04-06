@@ -155,33 +155,39 @@ function buildThumbnailFilter(
     mode: PipelineMode,
 ): string[] {
     const isReels   = mode === 'reels';
-    const brandSize = isReels ? 136 : 120;   // "GVNews24" — to, nổi bật
-    const textSize  = isReels ? 108 : 72;    // subtitle text bên dưới
-    const lineH     = textSize + 14;         // khoảng cách dòng
+    const brandSize = isReels ? 136 : 120;
+    const textSize  = isReels ? 108 : 72;
+    const lineH     = textSize + 14;
     const maxChars  = isReels ? 18 : 32;
 
-    const lines     = wrapText(text, maxChars);
-    const brand     = 'GVNews24';
-    const enable    = `enable='between(t,0,5)':expansion=none:fix_bounds=true`;
+    const lines = wrapText(text, maxChars);
+    const brand = 'GVNews24';
 
-    // Vị trí: đặt ở top 20%
-    const brandY = `h*0.20`;
-    const textBaseY = `h*0.20+${brandSize + 20}`;
+    // enable='between(t,0,5)' — dấu phẩy trong between() phải escape thành \,
+    // vì filter_complex dùng dấu phẩy làm delimiter
+    const enable = `enable='between(t\\,0\\,5)'`;
+
+    // Ưu tiên NotoSans Bold (cài qua fonts-noto trong GitHub Actions)
+    // Fallback DejaVu nếu chưa cài Noto
+    const boldFont = '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf';
 
     const brandFilter =
         `drawtext=text='${escapeDrawtext(brand)}':` +
-        `fontsize=${brandSize}:font='Noto Sans Bold':fontcolor=#FFD700:` +
+        `fontsize=${brandSize}:fontfile='${boldFont}':fontcolor=#FFD700:` +
         `box=1:boxcolor=black@0.92:boxborderw=24:` +
-        `x=(w-text_w)/2:y=${brandY}:${enable}`;
+        `x=(w-text_w)/2:y=h*0.20:` +
+        `fix_bounds=1:${enable}:expansion=none`;
 
     const textFilters = lines.map((line, i) => {
         const escaped = escapeDrawtext(line);
-        const y       = `${textBaseY}+${i * lineH}`;
+        // y là số nguyên thuần — không string concat với expression
+        const yOffset = brandSize + 20 + i * lineH;
         return (
             `drawtext=text='${escaped}':` +
-            `fontsize=${textSize}:font='Noto Sans Bold':fontcolor=white:` +
+            `fontsize=${textSize}:fontfile='${boldFont}':fontcolor=white:` +
             `box=1:boxcolor=black@0.92:boxborderw=20:` +
-            `x=(w-text_w)/2:y=${y}:${enable}`
+            `x=(w-text_w)/2:y=h*0.20+${yOffset}:` +
+            `fix_bounds=1:${enable}:expansion=none`
         );
     });
 
