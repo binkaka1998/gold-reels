@@ -123,10 +123,15 @@ function buildFilterComplex(
 // Text tự wrap dựa vào max_chars, căn giữa dọc/ngang.
 
 function escapeDrawtext(text: string): string {
-    // ffmpeg drawtext cần escape: ' : \ %
+    // Với spawn, không qua shell nên không cần escape shell chars
+    // Chỉ cần escape theo FFmpeg drawtext syntax:
+    //   \  → \\    (backslash)
+    //   '  → bỏ luôn — single quote gây lỗi parse dù đã escape
+    //   :  → \:    (option separator)
+    //   %  → \%    (drawtext format char)
     return text
         .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
+        .replace(/'/g, '')       // bỏ dấu nháy đơn — không thể escape an toàn trong drawtext
         .replace(/:/g, '\\:')
         .replace(/%/g, '\\%');
 }
@@ -184,7 +189,7 @@ function buildThumbnailFilter(
     const commonOpts = `fix_bounds=1:expansion=none`;
 
     const brandFilter =
-        `drawtext=text='${escapeDrawtext(brand)}':` +
+        `drawtext=text=${escapeDrawtext(brand)}:` +
         `fontsize=${brandSize}:fontfile=${boldFont}:fontcolor=#FFD700:` +
         `box=1:boxcolor=black@0.92:boxborderw=24:` +
         `x=(w-text_w)/2:y=h*0.20:${commonOpts}`;
@@ -193,7 +198,7 @@ function buildThumbnailFilter(
         const escaped = escapeDrawtext(line);
         const yOffset = brandSize + 20 + i * lineH;
         return (
-            `drawtext=text='${escaped}':` +
+            `drawtext=text=${escaped}:` +
             `fontsize=${textSize}:fontfile=${boldFont}:fontcolor=white:` +
             `box=1:boxcolor=black@0.92:boxborderw=20:` +
             `x=(w-text_w)/2:y=h*0.20+${yOffset}:${commonOpts}`
