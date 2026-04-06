@@ -170,10 +170,10 @@ function buildThumbnailFilter(
 
     // Resolve font tại runtime — thử Noto trước, fallback DejaVu, skip nếu không có
     const FONT_CANDIDATES = [
-        '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',
-        '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',           // Ubuntu default — luôn có
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',   // fonts-liberation
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',            // fonts-noto (CJK, hỗ trợ tiếng Việt)
+        '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',               // fonts-noto-core nếu có
     ];
     const boldFont = FONT_CANDIDATES.find(existsSync);
     if (!boldFont) {
