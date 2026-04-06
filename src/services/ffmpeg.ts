@@ -108,7 +108,7 @@ function buildFilterComplex(
         const outLabel = i === segments.length - 1 ? '[vout]' : `[x${i}]`;
         parts.push(
             `${prev}[s${i}]xfade=transition=fade:duration=${XFADE_DURATION_SEC}:` +
-            `offset=${offset.toFixed(3)}${outLabel}`
+            `offset=${offset.toFixed(3)}:${outLabel}`  // ← thêm : trước outLabel
         );
         prev = `[x${i}]`;
     }
@@ -280,6 +280,7 @@ export async function buildSlideshow(cfg: SlideshowConfig): Promise<string> {
     ];
 
     logger.debug({ argsLen: args.length, filterLen: filterComplex.length }, 'FFmpeg args');
+    logger.info({ filterComplex }, 'FFmpeg filter_complex');
 
     const t0 = Date.now();
     await new Promise<void>((resolve, reject) => {
